@@ -15,6 +15,13 @@
       "when": 1792736175347,
       "tag": "0001_volunteer_shifts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792770462422,
+      "tag": "0002_promise_tracker",
+      "breakpoints": true
     }
   ]
 }

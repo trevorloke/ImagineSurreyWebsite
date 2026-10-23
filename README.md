@@ -13,6 +13,7 @@ The Imagine Surrey home page design, built as a working site: Next.js (App Route
 | **Pledge and SkyTrain petition** | `campaign_signatures` |
 | **Events and RSVPs** | `events`, `event_rsvps` |
 | **Shop** | `products`, `orders`, `order_items`. Checkout through Stripe, with a Canadian shipping address. |
+| **Promise tracker** (`/tracker`) | `tracker_promises`, `tracker_updates`, `tracker_announcements`. Safe Surrey Coalition's 26 campaign promises, each with sources, a status and a delivery test (what counts as kept, partly kept or broken). The page also has a timeline of key dates and the announcements log. Visitors can filter by status and area, search, and link to a single promise (`/tracker#promise-10`). Score promises in `/admin/tracker`: add a dated update with a link to the record, and the status, scoreboard and public page change together. You can also add promises and announcements there. |
 | **Volunteer shifts** (`/admin/shifts`) | `shifts`, `volunteer_tasks`. A Sunday–Saturday calendar with Morning, Afternoon and Evening rows. Pick a task colour, then drag a volunteer's name onto a shift. You can also drag shifts to move them, drag a colour onto a shift to change its task, or drag a shift back to the list to remove it. On phones, tap a name and then a shift. "Copy last week" repeats a schedule, and "Print" gives a clean sheet for the wall. The list shows everyone who ticked "Volunteering", and search finds anyone else. |
 | **Admin** (`/admin`) | Totals; tables of members, contributions, monthly donors, subscribers, signatures, RSVPs and orders, each downloadable as CSV; publishing news and events; shop prices. |
 
@@ -24,7 +25,7 @@ Every person is stored once in `people`, keyed by email, so one supporter's memb
 cp .env.example .env.local      # then fill it in
 npm install
 npm run db:migrate              # create the tables
-npm run db:seed                 # add the shop products and starter volunteer tasks
+npm run db:seed                 # add shop products, volunteer tasks and the promise tracker
 npm run dev                     # http://localhost:3000
 ```
 
