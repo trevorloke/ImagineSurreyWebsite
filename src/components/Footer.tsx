@@ -30,6 +30,7 @@ export function Footer() {
             <Link href="/#about">About</Link>
             <Link href="/news">News</Link>
             <Link href="/events">Events</Link>
+            <Link href="/tracker">Promise tracker</Link>
             <Link href="/shop">Shop</Link>
             <Link href="/donate">Donate</Link>
             <a href={site.platformUrl}>Read the platform</a>

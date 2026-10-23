@@ -209,6 +209,9 @@ export default async function Home() {
             <Link href="/shop" className="btn btn--ghost btn--lg">
               Get the merch
             </Link>
+            <Link href="/tracker" className="btn btn--ghost btn--lg">
+              Track their promises
+            </Link>
           </div>
         </div>
       </section>

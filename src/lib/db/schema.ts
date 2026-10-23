@@ -310,3 +310,95 @@ export const stripeEvents = pgTable("stripe_events", {
   type: text("type").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Volunteer shifts ──────────────────────────────────────────────────────
+// What a volunteer is doing on a shift. The colour codes it on the calendar.
+export const volunteerTasks = pgTable(
+  "volunteer_tasks",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("volunteer_tasks_name_idx").on(t.name)],
+);
+
+export const shiftSlot = pgEnum("shift_slot", ["morning", "afternoon", "evening"]);
+
+export const shifts = pgTable(
+  "shifts",
+  {
+    id: id(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    slot: shiftSlot("slot").notNull(),
+    // Deleting a task leaves its shifts in place, uncoloured.
+    taskId: uuid("task_id").references(() => volunteerTasks.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("shifts_person_slot_idx").on(t.personId, t.date, t.slot), index("shifts_date_idx").on(t.date)],
+);
+
+// ── Promise tracker ───────────────────────────────────────────────────────
+// Safe Surrey Coalition's 2026 promises, scored against delivery in public.
+export const promiseStatus = pgEnum("promise_status", ["not_started", "in_progress", "kept", "partly_kept", "broken"]);
+
+export type TrackerSource = { label: string; url?: string };
+
+export const trackerPromises = pgTable(
+  "tracker_promises",
+  {
+    id: id(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    specifics: text("specifics").notNull().default(""),
+    area: text("area").notNull(),
+    sources: jsonb("sources").$type<TrackerSource[]>().notNull().default([]),
+    status: promiseStatus("status").notNull().default("not_started"),
+    // The delivery test: what counts as kept, partly kept or broken.
+    testKept: text("test_kept"),
+    testPartly: text("test_partly"),
+    testBroken: text("test_broken"),
+    testRecord: text("test_record"),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("tracker_promises_number_idx").on(t.number)],
+);
+
+// The record behind each score: what happened, when, and where to check it.
+export const trackerUpdates = pgTable(
+  "tracker_updates",
+  {
+    id: id(),
+    promiseId: uuid("promise_id")
+      .notNull()
+      .references(() => trackerPromises.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    // The status this update set, if it changed it.
+    status: promiseStatus("status"),
+    note: text("note").notNull(),
+    url: text("url"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("tracker_updates_promise_idx").on(t.promiseId, t.date)],
+);
+
+export const trackerAnnouncements = pgTable(
+  "tracker_announcements",
+  {
+    id: id(),
+    date: date("date").notNull(),
+    // How the date reads, e.g. "July 28 to 29, 2026".
+    dateLabel: text("date_label").notNull(),
+    title: text("title").notNull(),
+    commitments: text("commitments").notNull(),
+    sources: jsonb("sources").$type<TrackerSource[]>().notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("tracker_announcements_date_title_idx").on(t.date, t.title)],
+);

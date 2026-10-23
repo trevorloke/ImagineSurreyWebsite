@@ -1,6 +1,8 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { products } from "../src/lib/db/schema";
+import { products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { seedAnnouncements, seedPromises, seedTests } from "../src/content/tracker-seed";
+import { DEFAULT_TASKS } from "../src/lib/shifts";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("Set DATABASE_URL first (see .env.example).");
@@ -21,5 +23,22 @@ await db
   .insert(products)
   .values(catalogue.map((p, i) => ({ ...p, sortOrder: i })))
   .onConflictDoNothing({ target: products.slug });
+// Starter volunteer tasks. Rename or recolour them in /admin/shifts.
+await db
+  .insert(volunteerTasks)
+  .values(DEFAULT_TASKS.map((t, i) => ({ ...t, sortOrder: i })))
+  .onConflictDoNothing({ target: volunteerTasks.name });
+// The promise tracker as first published. Existing rows are left alone, so
+// re-running never overwrites statuses set in /admin/tracker.
+await db
+  .insert(trackerPromises)
+  .values(
+    seedPromises.map((p) => {
+      const test = seedTests.find((t) => t.promises.includes(p.number));
+      return { ...p, testKept: test?.kept, testPartly: test?.partly, testBroken: test?.broken, testRecord: test?.record };
+    }),
+  )
+  .onConflictDoNothing({ target: trackerPromises.number });
+await db.insert(trackerAnnouncements).values(seedAnnouncements).onConflictDoNothing();
 await client.end();
-console.log(`Seeded ${catalogue.length} products.`);
+console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, and ${seedPromises.length} tracked promises.`);

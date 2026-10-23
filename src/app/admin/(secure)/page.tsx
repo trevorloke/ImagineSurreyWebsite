@@ -10,6 +10,7 @@ const LABELS: Record<Dataset, string> = {
   newsletter: "Newsletter",
   signatures: "Petitions & pledges",
   rsvps: "RSVPs",
+  shifts: "Shifts",
   orders: "Shop orders",
 };
 
