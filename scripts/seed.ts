@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { products } from "../src/lib/db/schema";
+import { products, volunteerTasks } from "../src/lib/db/schema";
+import { DEFAULT_TASKS } from "../src/lib/shifts";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("Set DATABASE_URL first (see .env.example).");
@@ -21,5 +22,10 @@ await db
   .insert(products)
   .values(catalogue.map((p, i) => ({ ...p, sortOrder: i })))
   .onConflictDoNothing({ target: products.slug });
+// Starter volunteer tasks. Rename or recolour them in /admin/shifts.
+await db
+  .insert(volunteerTasks)
+  .values(DEFAULT_TASKS.map((t, i) => ({ ...t, sortOrder: i })))
+  .onConflictDoNothing({ target: volunteerTasks.name });
 await client.end();
-console.log(`Seeded ${catalogue.length} products.`);
+console.log(`Seeded ${catalogue.length} products and ${DEFAULT_TASKS.length} volunteer tasks.`);

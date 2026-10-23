@@ -310,3 +310,35 @@ export const stripeEvents = pgTable("stripe_events", {
   type: text("type").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Volunteer shifts ──────────────────────────────────────────────────────
+// What a volunteer is doing on a shift. The colour codes it on the calendar.
+export const volunteerTasks = pgTable(
+  "volunteer_tasks",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("volunteer_tasks_name_idx").on(t.name)],
+);
+
+export const shiftSlot = pgEnum("shift_slot", ["morning", "afternoon", "evening"]);
+
+export const shifts = pgTable(
+  "shifts",
+  {
+    id: id(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    slot: shiftSlot("slot").notNull(),
+    // Deleting a task leaves its shifts in place, uncoloured.
+    taskId: uuid("task_id").references(() => volunteerTasks.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("shifts_person_slot_idx").on(t.personId, t.date, t.slot), index("shifts_date_idx").on(t.date)],
+);

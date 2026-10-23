@@ -32,6 +32,12 @@ const QUERIES = {
     select e.title as event, e.starts_at, r.name, r.email, r.guests, r.created_at
     from event_rsvps r join events e on e.id = r.event_id
     order by e.starts_at desc, r.created_at`,
+  shifts: sql`
+    select s.date, s.slot, coalesce(nullif(concat_ws(' ', p.first_name, p.last_name), ''), p.email) as volunteer, p.email, p.phone,
+           t.name as task
+    from shifts s join people p on p.id = s.person_id left join volunteer_tasks t on t.id = s.task_id
+    where s.date >= current_date - 30
+    order by s.date, array_position(array['morning','afternoon','evening'], s.slot::text), volunteer`,
   orders: sql`
     select o.created_at, o.paid_at, o.status, o.email, o.total_cents,
            (select string_agg(i.quantity || ' × ' || i.name, '; ') from order_items i where i.order_id = o.id) as items,
