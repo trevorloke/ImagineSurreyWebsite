@@ -2,8 +2,8 @@
 
 export const SLOTS = [
   { id: "morning", label: "Morning", hours: "9 a.m.–12 p.m." },
-  { id: "afternoon", label: "Afternoon", hours: "1–5 p.m." },
-  { id: "evening", label: "Evening", hours: "6–9 p.m." },
+  { id: "afternoon", label: "Afternoon", hours: "1–4 p.m." },
+  { id: "evening", label: "Evening", hours: "5–8 p.m." },
 ] as const;
 export type Slot = (typeof SLOTS)[number]["id"];
 
