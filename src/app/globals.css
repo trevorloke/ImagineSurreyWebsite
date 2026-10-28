@@ -2562,3 +2562,6 @@ a.product:hover {
     transform: none;
   }
 }
+
+/* A product's picture from Starbase fills its tile. */
+.product-tile--img { object-fit: cover; display: block; width: 100%; }

@@ -69,14 +69,6 @@ export function AmountPicker({
           <button type="button" className="amount amount--wide" aria-pressed={choice.tier === "star"} onClick={() => onChange({ ...choice, tier: "star", amountCents: star })}>
             Star Club {formatCents(star)}
           </button>
-          <button
-            type="button"
-            className="amount amount--wide"
-            aria-pressed={choice.tier === "superstar"}
-            onClick={() => onChange({ ...choice, tier: "superstar", amountCents: star * 2 })}
-          >
-            Superstar Club {formatCents(star * 2)}
-          </button>
         </div>
         {allowCustom && (
           <div className="field" style={{ marginTop: 6 }}>
@@ -99,8 +91,7 @@ export function AmountPicker({
         )}
       </div>
       <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>
-        <strong>The Star Club</strong> is our name for donors who give the yearly maximum, all at once or spread across twelve months.{" "}
-        <strong>The Superstar Club</strong> gives the maximum to both our city council and school board slates: two contributions, one payment.
+        <strong>The Star Club</strong> is our name for donors who give the yearly maximum, all at once or spread across twelve months.
       </p>
     </>
   );

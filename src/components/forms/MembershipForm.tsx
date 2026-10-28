@@ -28,7 +28,7 @@ const LANGUAGES: [string, string?, string?][] = [
 
 const ISSUES = ["Safer streets", "Faster commutes", "Smarter investments", "Lower costs", "Stronger services", "Homes I can afford"];
 
-type Result = { status: "checkout"; url: string } | { status: "active" } | { status: "already_member"; expiresAt: string };
+type Result = { status: "checkout"; url: string } | { status: "active" } | { status: "pledged"; instructions?: string } | { status: "already_member"; expiresAt: string };
 
 export function MembershipForm({ feeCents }: { feeCents: number }) {
   const { submit, pending, error, fields } = useApiForm<Result>("/api/membership");
@@ -40,14 +40,16 @@ export function MembershipForm({ feeCents }: { feeCents: number }) {
   const [done, setDone] = useState<Result | null>(null);
   const blocked = tooYoung || (notEligible && feeCents > 0);
 
-  if (done?.status === "active" || done?.status === "already_member") {
+  if (done?.status === "active" || done?.status === "already_member" || done?.status === "pledged") {
     return (
       <div role="status" className="success-card">
-        <h3>{done.status === "active" ? "Welcome to Imagine Surrey" : "You're already a member"}</h3>
+        <h3>{done.status === "active" ? "Welcome to Imagine Surrey" : done.status === "pledged" ? "Thanks for joining" : "You're already a member"}</h3>
         <p>
           {done.status === "active"
             ? "Thanks for joining. Watch your inbox for a note from us."
-            : `Your membership runs until ${new Date(done.expiresAt).toLocaleDateString("en-CA", { dateStyle: "long" })}. We've updated your details.`}{" "}
+            : done.status === "pledged"
+              ? (done.instructions ?? "We'll be in touch to complete your membership fee by e-transfer or cheque.")
+              : `Your membership runs until ${new Date(done.expiresAt).toLocaleDateString("en-CA", { dateStyle: "long" })}. We've updated your details.`}{" "}
           Two things make the biggest difference right now: <Link href="/donate">chip in</Link> if you can, and tell one neighbour about us.
         </p>
       </div>

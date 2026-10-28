@@ -1,11 +1,5 @@
 import "server-only";
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable ${name}. See .env.example.`);
-  return value;
-}
-
 function cents(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
@@ -14,30 +8,21 @@ function cents(name: string, fallback: number): number {
   return n;
 }
 
-// Read lazily so `next build` works without secrets present.
+// Read lazily so `next build` works without settings present.
 export const env = {
   get siteUrl() {
     return (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   },
-  get databaseUrl() {
-    return required("DATABASE_URL");
+  /** Starbase, the site's backend: where its forms post and its content comes from. */
+  get starbaseUrl() {
+    return (process.env.STARBASE_URL ?? "http://localhost:8787").replace(/\/$/, "");
   },
-  get stripeSecretKey() {
-    return required("STRIPE_SECRET_KEY");
+  /** The campaign's slug in Starbase (Settings → the workspace). */
+  get starbaseWorkspace() {
+    return process.env.STARBASE_WORKSPACE ?? "imagine-surrey";
   },
-  get stripeWebhookSecret() {
-    return required("STRIPE_WEBHOOK_SECRET");
-  },
+  /** The annual limit the pages quote; Starbase checks the real one on every contribution. */
   get contributionLimitCents() {
     return cents("CONTRIBUTION_LIMIT_CENTS", 142970);
-  },
-  get membershipFeeCents() {
-    return cents("MEMBERSHIP_FEE_CENTS", 1000);
-  },
-  get adminPassword() {
-    return required("ADMIN_PASSWORD");
-  },
-  get adminSessionSecret() {
-    return required("ADMIN_SESSION_SECRET");
   },
 };

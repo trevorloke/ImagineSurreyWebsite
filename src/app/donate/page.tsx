@@ -13,7 +13,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
   await connection();
   const sp = await searchParams;
   const frequency = sp.frequency === "monthly" ? "monthly" : "one_time";
-  const tier = sp.tier === "star" || sp.tier === "superstar" ? sp.tier : "standard";
+  const tier = sp.tier === "star" ? "star" : "standard";
   const amount = Number(sp.amount);
   const limitCents = env.contributionLimitCents;
   const initial: Choice = {
@@ -24,7 +24,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
         ? Number.isInteger(amount) && amount > 0
           ? amount
           : DEFAULT_CENTS[frequency]
-        : starClubCents(frequency, limitCents) * (tier === "superstar" ? 2 : 1),
+        : starClubCents(frequency, limitCents),
   };
 
   return (
@@ -37,6 +37,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 320px", gap: 16 }}>
             {sp.cancelled && <Alert tone="note">Your payment was cancelled and you haven&apos;t been charged. You can try again whenever you&apos;re ready.</Alert>}
+            {sp.pledged && <Alert tone="note">Your pledge is recorded.</Alert>}
             <h2 className="h3" style={{ fontSize: 26 }}>
               Where your money goes
             </h2>

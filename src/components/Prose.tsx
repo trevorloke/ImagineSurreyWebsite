@@ -1,8 +1,10 @@
-/** Plain-text body with blank lines between paragraphs. */
-export function Prose({ text }: { text: string }) {
+/** A body from Starbase, already rendered by its safe Markdown renderer (every
+ * character escaped first; only its own tags come out). Plain text works too. */
+export function Prose({ html, text }: { html?: string; text?: string }) {
+  if (html) return <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />;
   return (
     <div className="prose">
-      {text
+      {(text ?? "")
         .split(/\n\s*\n/)
         .map((p) => p.trim())
         .filter(Boolean)

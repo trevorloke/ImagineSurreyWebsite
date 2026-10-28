@@ -21,7 +21,7 @@ export default async function EventsIndex() {
             events.map((ev) => {
               const { day, mon } = dayAndMonth(ev.startsAt);
               return (
-                <article key={ev.id} className="event-feature">
+                <article key={ev.slug} className="event-feature">
                   <div className="date-badge">
                     <span className="day">{day}</span>
                     <span className="mon">{mon}</span>

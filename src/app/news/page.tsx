@@ -18,8 +18,8 @@ export default async function NewsIndex() {
           ) : (
             <div className="card-grid">
               {posts.map((post) => (
-                <article key={post.id} className="card">
-                  <p className="eyebrow">{formatDate(post.publishedAt!)}</p>
+                <article key={post.slug} className="card">
+                  <p className="eyebrow">{formatDate(post.publishedAt)}</p>
                   <h2 className="h3">{post.title}</h2>
                   <p>{post.summary}</p>
                   <Link href={`/news/${post.slug}`} className="text-link" style={{ fontSize: 15 }}>
