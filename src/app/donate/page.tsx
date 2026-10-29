@@ -5,7 +5,7 @@ import type { Choice } from "@/components/forms/AmountPicker";
 import { PageHead } from "@/components/PageHead";
 import { Alert } from "@/components/forms/Field";
 import { DEFAULT_CENTS, starClubCents } from "@/lib/contributions";
-import { env } from "@/lib/env";
+import { contributionLimitCents } from "@/lib/server/content";
 
 export const metadata: Metadata = { title: "Chip in", description: "Contribute to Imagine Surrey, one-time or monthly." };
 
@@ -13,9 +13,9 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
   await connection();
   const sp = await searchParams;
   const frequency = sp.frequency === "monthly" ? "monthly" : "one_time";
-  const tier = sp.tier === "star" ? "star" : "standard";
+  const tier = sp.tier === "star" || sp.tier === "superstar" ? sp.tier : "standard";
   const amount = Number(sp.amount);
-  const limitCents = env.contributionLimitCents;
+  const limitCents = await contributionLimitCents();
   const initial: Choice = {
     frequency,
     tier,
@@ -24,7 +24,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
         ? Number.isInteger(amount) && amount > 0
           ? amount
           : DEFAULT_CENTS[frequency]
-        : starClubCents(frequency, limitCents),
+        : starClubCents(frequency, limitCents) * (tier === "superstar" ? 2 : 1),
   };
 
   return (

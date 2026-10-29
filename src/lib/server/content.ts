@@ -1,4 +1,5 @@
 import "server-only";
+import { env } from "@/lib/env";
 import { connection } from "next/server";
 import { readOrNull } from "@/lib/starbase";
 
@@ -72,10 +73,18 @@ export async function productsForCheckout(): Promise<{ products: SiteProduct[]; 
 export type SiteInfo = {
   campaign: { name: string; slug: string };
   links: { donate: string; volunteer: string; newsletter: string; unsubscribe: string };
+  /** This year's limit per contributor per slate, from Starbase's cap table (null when it knows no rule), and the slates. */
+  donate: { limit_cents: number | null; year: number; slates: { code: string; label: string }[] };
   membership: { fee_cents: number; min_age: number; neighbourhoods: string[]; campuses: string[]; citizenship: string[] };
 };
 
 export async function siteInfo(): Promise<SiteInfo | null> {
   await connection();
   return readOrNull<SiteInfo>("/site");
+}
+
+/** The limit the donate pages quote: Starbase's figure, or CONTRIBUTION_LIMIT_CENTS when it can't be reached. */
+export async function contributionLimitCents(): Promise<number> {
+  const info = await siteInfo();
+  return info?.donate?.limit_cents ?? env.contributionLimitCents;
 }

@@ -232,7 +232,7 @@ export default async function Home() {
               Your contribution pays for the unglamorous work: organizers, printing, outreach in every town centre, and keeping the lights on.
             </p>
           </div>
-          <DonateWidget limitCents={env.contributionLimitCents} />
+          <DonateWidget limitCents={info?.donate?.limit_cents ?? env.contributionLimitCents} />
         </div>
       </section>
 
