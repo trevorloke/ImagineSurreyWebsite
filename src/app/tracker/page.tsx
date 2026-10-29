@@ -4,9 +4,8 @@ import { NewsletterForm } from "@/components/forms/NewsletterForm";
 import { KeyDates } from "@/components/tracker/KeyDates";
 import { PromiseList, SourceLinks, type PublicPromise } from "@/components/tracker/PromiseList";
 import { scoringNote, sourceGroups, sourcesNote, trackerHighlights, trackerIntro } from "@/content/tracker";
-import { todayInSurrey } from "@/lib/shifts";
 import { countByStatus, PROMISE_STATUSES } from "@/lib/tracker";
-import { loadTracker } from "@/lib/server/tracker";
+import { loadTracker, todayInSurrey } from "@/lib/server/tracker";
 
 export const metadata: Metadata = {
   title: "Safe Surrey promise tracker",

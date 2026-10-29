@@ -16,12 +16,12 @@ export default async function NewsPost({ params }: PageProps<"/news/[slug]">) {
   if (!post) notFound();
   return (
     <>
-      <PageHead title={post.title} eyebrow={formatDate(post.publishedAt!)}>
+      <PageHead title={post.title} eyebrow={formatDate(post.publishedAt)}>
         {post.summary}
       </PageHead>
       <section className="section">
         <div className="container stack" style={{ gap: 24 }}>
-          <Prose text={post.body} />
+          <Prose html={post.html} />
           <Link href="/news" className="text-link">
             ← All news
           </Link>

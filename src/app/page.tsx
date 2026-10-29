@@ -11,10 +11,13 @@ import { dayAndMonth, formatDate, timeOnly } from "@/lib/dates";
 import { env } from "@/lib/env";
 import { formatCents } from "@/lib/money";
 import { NEIGHBOURHOODS } from "@/lib/neighbourhoods";
-import { activeProducts, latestNews, upcomingEvents } from "@/lib/server/content";
+import { activeProducts, latestNews, siteInfo, upcomingEvents } from "@/lib/server/content";
+import { ProductTile } from "@/components/Cart";
 
 export default async function Home() {
-  const [news, events, products] = await Promise.all([latestNews(3), upcomingEvents(3), activeProducts()]);
+  const [news, events, shop, info] = await Promise.all([latestNews(3), upcomingEvents(3), activeProducts(), siteInfo()]);
+  const products = shop.products.slice(0, 4);
+  const feeCents = info?.membership.fee_cents ?? 1000;
   const [nextEvent, ...moreEvents] = events;
 
   return (
@@ -105,8 +108,8 @@ export default async function Home() {
           ) : (
             <div className="card-grid">
               {news.map((post) => (
-                <article key={post.id} className="card">
-                  <p className="eyebrow">{formatDate(post.publishedAt!)}</p>
+                <article key={post.slug} className="card">
+                  <p className="eyebrow">{formatDate(post.publishedAt)}</p>
                   <h3 className="h3">{post.title}</h3>
                   <p>{post.summary}</p>
                   <Link href={`/news/${post.slug}`} className="text-link" style={{ fontSize: 15 }}>
@@ -150,7 +153,7 @@ export default async function Home() {
               </div>
             </div>
             <div style={{ flex: "1 1 460px" }}>
-              <MembershipForm feeCents={env.membershipFeeCents} />
+              <MembershipForm feeCents={feeCents} />
             </div>
           </div>
           <div id="newsletter" className="newsletter-bar">
@@ -229,7 +232,7 @@ export default async function Home() {
               Your contribution pays for the unglamorous work: organizers, printing, outreach in every town centre, and keeping the lights on.
             </p>
           </div>
-          <DonateWidget limitCents={env.contributionLimitCents} />
+          <DonateWidget limitCents={info?.donate?.limit_cents ?? env.contributionLimitCents} />
         </div>
       </section>
 
@@ -424,7 +427,7 @@ export default async function Home() {
               {moreEvents.length > 0 && (
                 <div className="event-list">
                   {moreEvents.map((ev) => (
-                    <article key={ev.id} className="event-row">
+                    <article key={ev.slug} className="event-row">
                       <div className="date-badge date-badge--sm">
                         <span className="day">{dayAndMonth(ev.startsAt).day}</span>
                         <span className="mon">{dayAndMonth(ev.startsAt).mon}</span>
@@ -471,10 +474,8 @@ export default async function Home() {
           </div>
           <div className="products">
             {products.map((p) => (
-              <Link key={p.id} href="/shop" className="product">
-                <div className="product-tile" style={{ background: p.tileBackground, color: p.tileForeground }}>
-                  {p.tileLabel}
-                </div>
+              <Link key={p.slug} href="/shop" className="product">
+                <ProductTile product={p} />
                 <div className="product-meta">
                   <h3>{p.name}</h3>
                   <span className="price">{formatCents(p.priceCents)}</span>

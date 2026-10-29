@@ -10,14 +10,25 @@ export type ShopProduct = {
   name: string;
   description: string;
   priceCents: number;
-  tileLabel: string;
-  tileBackground: string;
-  tileForeground: string;
+  image: string | null;
+  soldOut: boolean;
 };
+
+/** A product's picture from Starbase, or its name on navy until one is uploaded. */
+export function ProductTile({ product }: { product: ShopProduct }) {
+  return product.image ? (
+    // eslint-disable-next-line @next/next/no-img-element -- Starbase serves the picture at its own address
+    <img className="product-tile product-tile--img" src={product.image} alt="" loading="lazy" decoding="async" />
+  ) : (
+    <div className="product-tile" style={{ background: "var(--navy)", color: "#fff" }}>
+      {product.name}
+    </div>
+  );
+}
 
 const STORAGE_KEY = "imagine-surrey-cart";
 
-export function Cart({ products }: { products: ShopProduct[] }) {
+export function Cart({ products, open }: { products: ShopProduct[]; open: boolean }) {
   const [qty, setQty] = useState<Record<string, number>>({});
   const { submit, pending, error } = useApiForm<{ url: string }>("/api/shop/checkout");
 
@@ -56,12 +67,10 @@ export function Cart({ products }: { products: ShopProduct[] }) {
           const n = qty[p.slug] ?? 0;
           return (
             <article key={p.slug} className="product">
-              <div className="product-tile" style={{ background: p.tileBackground, color: p.tileForeground }}>
-                {p.tileLabel}
-              </div>
+              <ProductTile product={p} />
               <div className="product-meta">
                 <h3>{p.name}</h3>
-                <span className="price">{formatCents(p.priceCents)}</span>
+                <span className="price">{p.soldOut ? "Sold out" : formatCents(p.priceCents)}</span>
               </div>
               {p.description && <p style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: "var(--muted)" }}>{p.description}</p>}
               <div className="qty" role="group" aria-label={`Quantity of ${p.name}`}>
@@ -71,7 +80,7 @@ export function Cart({ products }: { products: ShopProduct[] }) {
                 <span aria-live="polite" style={{ fontWeight: 800, fontSize: 18 }}>
                   {n}
                 </span>
-                <button type="button" className="qty-btn" onClick={() => set(p.slug, n + 1)} aria-label={`Add one ${p.name}`}>
+                <button type="button" className="qty-btn" onClick={() => set(p.slug, n + 1)} disabled={p.soldOut || !open} aria-label={`Add one ${p.name}`}>
                   +
                 </button>
               </div>
@@ -79,8 +88,9 @@ export function Cart({ products }: { products: ShopProduct[] }) {
           );
         })}
       </div>
+      {!open && <p className="empty-state">Online checkout opens soon.</p>}
       {error && <Alert>{error}</Alert>}
-      {count > 0 && (
+      {count > 0 && open && (
         <div className="cart-bar">
           <span style={{ fontSize: 18, fontWeight: 700 }}>
             {count} {count === 1 ? "item" : "items"} · {formatCents(total)}

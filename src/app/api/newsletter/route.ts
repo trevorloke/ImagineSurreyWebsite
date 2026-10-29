@@ -1,15 +1,15 @@
 import type { NextRequest } from "next/server";
-import { getDb } from "@/lib/db";
 import { json, parseBody } from "@/lib/server/api";
-import { handle } from "@/lib/server/handle";
-import { subscribe } from "@/lib/server/newsletter";
+import { handle, refused } from "@/lib/server/handle";
+import { write } from "@/lib/starbase";
 import { newsletterSchema } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const parsed = await parseBody(req, newsletterSchema, "newsletter");
     if (!parsed.ok) return parsed.response;
-    await subscribe(getDb(), parsed.data.email, parsed.data.source ?? "website");
+    const r = await write("/signup", { kind: "newsletter", email: parsed.data.email });
+    if (r.status !== 200) return refused(r.data, r.status);
     return json({ ok: true });
   });
 }

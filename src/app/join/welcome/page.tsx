@@ -1,17 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
-import { completedSession } from "@/lib/server/checkout-session";
 
 export const metadata: Metadata = { title: "Welcome", robots: { index: false } };
 
-export default async function Welcome({ searchParams }: PageProps<"/join/welcome">) {
-  const session = await completedSession((await searchParams).session_id);
+export default function Welcome() {
   return (
     <>
-      <PageHead title="Welcome to Imagine Surrey">
-        {session ? "Your membership is paid and active. Stripe will email your receipt." : "Thanks for joining. Watch your inbox for a note from us."}
-      </PageHead>
+      <PageHead title="Welcome to Imagine Surrey">Your membership is paid. Stripe will email your receipt, and we&apos;ll be in touch.</PageHead>
       <section className="section">
         <div className="container stack" style={{ gap: 20, maxWidth: 760 }}>
           <p className="body">

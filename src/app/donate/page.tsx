@@ -5,7 +5,7 @@ import type { Choice } from "@/components/forms/AmountPicker";
 import { PageHead } from "@/components/PageHead";
 import { Alert } from "@/components/forms/Field";
 import { DEFAULT_CENTS, starClubCents } from "@/lib/contributions";
-import { env } from "@/lib/env";
+import { contributionLimitCents } from "@/lib/server/content";
 
 export const metadata: Metadata = { title: "Chip in", description: "Contribute to Imagine Surrey, one-time or monthly." };
 
@@ -15,7 +15,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
   const frequency = sp.frequency === "monthly" ? "monthly" : "one_time";
   const tier = sp.tier === "star" || sp.tier === "superstar" ? sp.tier : "standard";
   const amount = Number(sp.amount);
-  const limitCents = env.contributionLimitCents;
+  const limitCents = await contributionLimitCents();
   const initial: Choice = {
     frequency,
     tier,
@@ -37,6 +37,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 320px", gap: 16 }}>
             {sp.cancelled && <Alert tone="note">Your payment was cancelled and you haven&apos;t been charged. You can try again whenever you&apos;re ready.</Alert>}
+            {sp.pledged && <Alert tone="note">Your pledge is recorded.</Alert>}
             <h2 className="h3" style={{ fontSize: 26 }}>
               Where your money goes
             </h2>
