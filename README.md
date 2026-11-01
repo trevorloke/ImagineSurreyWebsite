@@ -21,6 +21,10 @@ Every person is stored once in `people`, keyed by email, so one supporter's memb
 
 ## Setup
 
+**Going live?** Follow [SETUP.md](SETUP.md): Supabase, Vercel, Stripe, and connecting your Supabase app to the same data.
+
+For local development:
+
 ```sh
 cp .env.example .env.local      # then fill it in
 npm install

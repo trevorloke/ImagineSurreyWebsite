@@ -22,6 +22,13 @@
       "when": 1792770462422,
       "tag": "0002_promise_tracker",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793502510648,
+      "tag": "0003_lock_down_tables",
+      "breakpoints": true
     }
   ]
 }
