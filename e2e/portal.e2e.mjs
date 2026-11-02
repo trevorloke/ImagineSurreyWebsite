@@ -18,6 +18,23 @@ async function loginToken(email) {
 }
 
 
+/** Poll until fn() is truthy (work done after the response, in after()), or give up after ~5s. */
+async function eventually(fn) {
+  for (let i = 0; i < 50; i++) {
+    const v = await fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return fn();
+}
+
+/** POST a sign-in token the way the /me/verify page's button does. */
+async function verifyPost(token, next, extraHeaders = {}) {
+  const body = new URLSearchParams({ token });
+  if (next !== undefined) body.set("next", next);
+  return fetch(`${BASE}/api/me/verify`, { method: "POST", body, headers: { origin: BASE, ...extraHeaders }, redirect: "manual" });
+}
+
 /** Submit the preferences form and wait for the server action to answer. */
 async function savePreferences(page) {
   await Promise.all([page.waitForResponse((res) => res.request().method() === "POST" && res.url().includes("/me/preferences")), page.click('form.form-card button[type="submit"]')]);
@@ -29,6 +46,7 @@ const email = "portal@example.com";
 const [person] = await sql`insert into people (email, first_name, last_name, postal_code, neighbourhood, referral_code, stripe_customer_id, stripe_customer_mode, contact_consent_at)
   values (${email}, 'Pat', 'Portal', 'V3W 1A1', 'Newton', 'PORTAL23', 'cus_portal', 'test', now()) returning id`;
 await sql`insert into memberships (person_id, status, fee_cents, voting_eligible, starts_at, expires_at) values (${person.id}, 'active', 1000, true, now(), now() + interval '300 days')`;
+await sql`insert into newsletter_subscribers (email, person_id, source, unsubscribe_token) values (${email}, ${person.id}, 'e2e', 'portal-e2e-newsletter-token')`;
 await sql`insert into contributions (person_id, kind, frequency, slate, amount_cents, status, contributor_name, contributor_address, contributor_city, contributor_postal_code, eligibility_attested_at, paid_at)
   values (${person.id}, 'donation', 'one_time', 'council', 20000, 'succeeded', 'Pat Portal', '1 Main St', 'Surrey', 'V3W 1A1', now(), now())`;
 await sql`insert into campaign_signatures (campaign, person_id, first_name, last_name, email, postal_code, neighbourhood) values ('stop-mccallum-pledge', ${person.id}, 'Pat', 'Portal', ${email}, 'V3W 1A1', 'Newton')`;
@@ -54,6 +72,7 @@ ok([302, 303].includes(r.status) && (r.headers.get("location") ?? "").includes("
 // ── Asking for a link ─────────────────────────────────────────────────────
 r = await post("/api/me/login", { email: "unknown-portal@example.com" });
 ok(r.status === 200 && r.body?.ok === true, "unknown email gets the same ok answer");
+await new Promise((res) => setTimeout(res, 500));
 ok((await sql`select count(*)::int c from auth_tokens where email = 'unknown-portal@example.com'`)[0].c === 0, "…and no token is created for it");
 r = await post("/api/me/login", { email, website: "spam.example" });
 ok(r.status === 200 && r.body?.ok === true, "honeypot submission gets ok");
@@ -61,24 +80,43 @@ ok((await sql`select count(*)::int c from auth_tokens where email = ${email}`)[0
 r = await post("/api/me/login", { email: "not-an-email" });
 ok(r.status === 422 && r.body?.fields?.email, "a malformed address gets a field error");
 r = await post("/api/me/login", { email: email.toUpperCase() });
+ok(r.status === 200 && r.body?.ok === true, "known email gets the same ok answer as an unknown one");
+const mail = await eventually(async () => {
+  const rows = await sql`select status, html from email_log where "to" = ${email} and kind = 'member-magic-link'`;
+  return rows.length ? rows : null;
+});
 const tokens = await sql`select purpose, expires_at > now() + interval '25 minutes' as fresh, expires_at < now() + interval '35 minutes' as short, data from auth_tokens where email = ${email}`;
-ok(r.status === 200 && r.body?.ok === true && tokens.length === 1 && tokens[0].purpose === "member-login" && tokens[0].fresh && tokens[0].short, "known email (any case) gets a 30-minute member-login token");
-const mail = await sql`select status, html from email_log where "to" = ${email} and kind = 'member-magic-link'`;
-ok(mail.length === 1 && mail[0].status === "skipped" && mail[0].html.includes("/api/me/verify?token="), "sign-in email logged (skipped: no email provider) with the verify link");
+ok(tokens.length === 1 && tokens[0].purpose === "member-login" && tokens[0].fresh && tokens[0].short, "known email (any case) gets a 30-minute member-login token, made after the response");
+ok(mail?.length === 1 && mail[0].status === "skipped" && mail[0].html.includes("/me/verify?token="), "sign-in email logged (skipped: no email provider) with the verify page link");
+
+// Five links an hour per address, whatever IP asks (post() uses a fresh IP each time).
+const limited = "ratelimit-portal@example.com";
+const answers = [];
+for (let i = 0; i < 6; i++) answers.push((await post("/api/me/login", { email: limited })).status);
+ok(answers.slice(0, 5).every((s) => s === 200) && answers[5] === 429, `the sixth request for one address within the hour is refused (${answers.join(",")})`);
 
 // ── The link ──────────────────────────────────────────────────────────────
 const raw = await loginToken(email);
-r = await fetch(`${BASE}/api/me/verify?token=${raw}`, { redirect: "manual" });
+// Opening the link (a mail scanner, a prefetch, another site's <img>) signs nobody in and keeps the token.
+r = await fetch(`${BASE}/api/me/verify?token=${raw}&next=/me/preferences`, { redirect: "manual" });
+const landing = new URL(r.headers.get("location") ?? "/", BASE);
+ok(r.status === 303 && landing.pathname === "/me/verify" && landing.searchParams.get("token") === raw && landing.searchParams.get("next") === "/me/preferences" && !r.headers.get("set-cookie"), "GET on the old link forwards to the /me/verify page without signing in");
+ok((await sql`select used_at from auth_tokens where token_hash = ${sha256(raw)}`)[0]?.used_at === null, "…and does not use up the token");
+const verifyPage = await (await fetch(`${BASE}/me/verify?token=${raw}`)).text();
+ok(verifyPage.includes('action="/api/me/verify"') && verifyPage.includes('method="post"') && verifyPage.includes(raw) && (await sql`select used_at from auth_tokens where token_hash = ${sha256(raw)}`)[0]?.used_at === null, "the /me/verify page shows a Sign in button and still does not use the token");
+r = await verifyPost(raw, undefined, { origin: "https://evil.example" });
+ok(r.status === 403 && !r.headers.get("set-cookie"), "a cross-site POST cannot sign anyone in");
+r = await verifyPost(raw);
 const setCookie = r.headers.get("set-cookie") ?? "";
-ok(r.status === 303 && (r.headers.get("location") ?? "").endsWith("/me") && /(^|, )is_member=[^;]+;/.test(setCookie) && /httponly/i.test(setCookie) && /samesite=lax/i.test(setCookie), "verify sets the is_member cookie and redirects to /me");
+ok(r.status === 303 && (r.headers.get("location") ?? "").endsWith("/me") && /(^|, )is_member=[^;]+;/.test(setCookie) && /httponly/i.test(setCookie) && /samesite=lax/i.test(setCookie), "the button's POST sets the is_member cookie and redirects to /me");
 const cookie = (setCookie.match(/is_member=[^;]+/) ?? [""])[0];
-r = await fetch(`${BASE}/api/me/verify?token=${raw}`, { redirect: "manual" });
+r = await verifyPost(raw);
 ok((r.headers.get("location") ?? "").includes("/me/login?error=expired") && !r.headers.get("set-cookie"), "the same token a second time fails");
-r = await fetch(`${BASE}/api/me/verify?token=nonsense`, { redirect: "manual" });
+r = await verifyPost("nonsense");
 ok((r.headers.get("location") ?? "").includes("error=expired"), "an unknown token fails");
-r = await fetch(`${BASE}/api/me/verify?token=${await loginToken(email)}&next=//evil.example`, { redirect: "manual" });
+r = await verifyPost(await loginToken(email), "//evil.example");
 ok((r.headers.get("location") ?? "").endsWith("/me"), "an unsafe next falls back to /me");
-r = await fetch(`${BASE}/api/me/verify?token=${await loginToken(email)}&next=/me/preferences`, { redirect: "manual" });
+r = await verifyPost(await loginToken(email), "/me/preferences");
 ok((r.headers.get("location") ?? "").endsWith("/me/preferences"), "a relative next is honoured");
 ok((await sql`select count(*)::int c from auth_tokens where email = ${email} and used_at is null and expires_at > now()`)[0].c === 1, "only the unused token from the form remains");
 
@@ -160,6 +198,8 @@ await page.locator("#member-login-status").filter({ hasText: "If that address ha
 ok((await page.locator("#member-login-status").getAttribute("role")) === "status", "sent state announced in a status region");
 
 await page.goto(`${BASE}/api/me/verify?token=${await loginToken(email)}`);
+await page.waitForURL(/\/me\/verify\?/);
+await page.click('button:has-text("Sign in")');
 await page.waitForURL(/\/me$/);
 ok((await page.locator("h1").count()) === 1 && (await page.locator("h1").textContent()).includes("Hi Pat"), "signed in through the link: /me greets the member");
 ok((await page.locator("input.share-sheet__url").first().inputValue()).endsWith("/r/PORTAL23"), "referral link is in the share sheet");
@@ -188,6 +228,18 @@ consent = await sql`select channel, action, wording from consent_events where pe
 row = (await sql`select sms_consent_at, contact_consent_at from people where id = ${person.id}`)[0];
 ok(consent.length === 2 && consent.every((c) => c.action === "withdraw") && consent.some((c) => c.channel === "sms" && c.wording === SMS_WORDING) && consent.some((c) => c.channel === "email" && c.wording === UPDATES_WORDING), "unticking writes a withdrawal for each channel");
 ok(row.sms_consent_at === null && row.contact_consent_at === null, "…and clears both consent timestamps");
+
+// React resets the form after a save: the boxes must show what was saved, not the props the page loaded with.
+ok(!(await page.isChecked('input[name="updates"]')) && !(await page.isChecked('input[name="sms"]')), "after saving, unticked boxes stay unticked");
+const before = (await sql`select count(*)::int c from consent_events where person_id = ${person.id}`)[0].c;
+await page.selectOption("#pref-locale", "pa");
+await savePreferences(page);
+await page.locator('[role="status"].alert').waitFor();
+ok((await sql`select count(*)::int c from consent_events where person_id = ${person.id}`)[0].c === before, "changing only the language writes no consent event");
+ok((await sql`select contact_consent_at, locale from people where id = ${person.id}`)[0].contact_consent_at === null && !(await page.isChecked('input[name="updates"]')), "…and the email tick is not re-granted");
+ok((await sql`select status from newsletter_subscribers where email = ${email}`)[0]?.status === "unsubscribed", "withdrawing email updates also stops the newsletter");
+await page.reload();
+ok(!(await page.isChecked('input[name="updates"]')) && (await page.locator("#pref-locale").inputValue()) === "pa", "a reload shows the saved choices");
 
 await page.check('input[name="sms"]');
 await page.fill("#pref-phone", "");

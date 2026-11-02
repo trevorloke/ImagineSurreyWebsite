@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { adminUsers } from "@/lib/db/schema";
 import { env } from "@/lib/env";
@@ -13,7 +13,11 @@ import { safeNext } from "@/lib/server/admin-redirect";
 
 const LINK_MINUTES = 20;
 
-/** Ask for a sign-in link. The response is the same whether or not the address has an account. */
+/**
+ * Ask for a sign-in link. The response is the same whether or not the address
+ * has an account, and the lookup and email happen after it is sent, so
+ * neither timing nor a mail failure shows who is staff.
+ */
 export async function POST(req: NextRequest) {
   const form = await req.formData();
   const email = String(form.get("email") ?? "").trim().toLowerCase();
@@ -27,13 +31,18 @@ export async function POST(req: NextRequest) {
   if (await isLocked(db, key)) return back("error=locked");
   await recordAttempt(db, key, false);
 
-  const user = await db.query.adminUsers.findFirst({ where: and(eq(adminUsers.email, email), eq(adminUsers.active, true)) });
-  if (user) {
-    const raw = await createToken(db, "admin-login", email, { ttlMinutes: LINK_MINUTES, data: { next } });
-    const { org } = await getSettings();
-    const message = adminMagicLinkEmail({ siteUrl: env.siteUrl, orgName: org.name, orgEmail: org.email }, tokenUrl("/api/admin/magic-link", raw), LINK_MINUTES);
-    await sendEmail(db, { to: email, kind: "admin-magic-link", ...message });
-  }
+  after(async () => {
+    try {
+      const user = await db.query.adminUsers.findFirst({ where: and(eq(adminUsers.email, email), eq(adminUsers.active, true)) });
+      if (!user) return;
+      const raw = await createToken(db, "admin-login", email, { ttlMinutes: LINK_MINUTES, data: { next } });
+      const { org } = await getSettings();
+      const message = adminMagicLinkEmail({ siteUrl: env.siteUrl, orgName: org.name, orgEmail: org.email }, tokenUrl("/api/admin/magic-link", raw), LINK_MINUTES);
+      await sendEmail(db, { to: email, kind: "admin-magic-link", ...message });
+    } catch (err) {
+      console.error("admin sign-in link failed", err);
+    }
+  });
   return back("sent=1");
 }
 
