@@ -131,7 +131,7 @@ ok((await page.locator("[data-follow-done]").getAttribute("data-follow-done")) =
 const follow = (await sql`select confirmed_at, token, person_id from promise_follows where promise_id = ${helicopter.id} and email = 'follower@example.com'`)[0];
 ok(follow && follow.confirmed_at !== null && follow.token.length >= 24, "follow creates a confirmed promise_follows row with a token");
 const person = (await sql`select contact_consent_at, source from people where email = 'follower@example.com'`)[0];
-ok(person && person.contact_consent_at !== null && person.source === "tracker-follow", "follower is a person with email consent recorded");
+ok(person && person.contact_consent_at === null && person.source === "tracker-follow", "follower is a person; the follow is consent for that promise only, not general email consent");
 
 // The API behind the form.
 let r = await post("/api/tracker/follow", { promiseId: helicopter.id, email: "follower@example.com", consent: true, website: "" });

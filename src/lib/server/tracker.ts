@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { after } from "next/server";
 import { getDb, type Db } from "@/lib/db";
 import { promiseFollows, trackerAnnouncements, trackerPromises, trackerUpdates, type TrackerSource } from "@/lib/db/schema";
 import type { MessageContext } from "@/lib/email/messages";
@@ -180,10 +181,15 @@ export function promiseFollowConfirmEmail(ctx: MessageContext, o: { number: numb
  * Record a follow. With email configured the follow waits for a click on a
  * confirmation link (double opt-in); without it the follow is confirmed at
  * once. Following twice is harmless: a pending follow gets a fresh link.
+ *
+ * The confirmed follow row is the consent for this one narrow purpose, so the
+ * person's general email consent (contactConsentAt) is left alone. With email
+ * configured the answer is always "pending" and the email goes out after the
+ * response, so the reply never shows whether the address already follows.
  */
 export async function followPromise(db: Db, input: { promise: { id: string; number: number; title: string }; email: string }, ctx: MessageContext): Promise<{ status: FollowStatus }> {
   const address = input.email.trim().toLowerCase();
-  const person = await findOrCreatePerson(db, address, { contactConsentAt: new Date() }, { source: "tracker-follow" });
+  const person = await findOrCreatePerson(db, address, {}, { source: "tracker-follow" });
   const confirmNow = !env.emailEnabled;
   const [inserted] = await db
     .insert(promiseFollows)
@@ -192,15 +198,22 @@ export async function followPromise(db: Db, input: { promise: { id: string; numb
     .returning();
   const follow = inserted ?? (await db.query.promiseFollows.findFirst({ where: and(eq(promiseFollows.promiseId, input.promise.id), eq(promiseFollows.email, address)) }));
   if (!follow) throw new Error("Could not record the follow.");
-  if (follow.confirmedAt) return { status: "confirmed" };
   if (confirmNow) {
-    await db.update(promiseFollows).set({ confirmedAt: new Date() }).where(eq(promiseFollows.id, follow.id));
+    if (!follow.confirmedAt) await db.update(promiseFollows).set({ confirmedAt: new Date() }).where(eq(promiseFollows.id, follow.id));
     return { status: "confirmed" };
   }
-  const raw = await createToken(db, "promise-follow", address, { ttlMinutes: 3 * 24 * 60, data: { followId: follow.id } });
-  const unfollow = unfollowUrl(follow.token);
-  const message = promiseFollowConfirmEmail(ctx, { number: input.promise.number, title: input.promise.title, confirmUrl: tokenUrl("/api/tracker/follow/confirm", raw), unfollowUrl: unfollow });
-  await sendEmail(db, { to: address, subject: message.subject, html: message.html, text: message.text, kind: "promise-follow-confirm", personId: person.id, unsubscribeUrl: unfollow });
+  // Already confirmed: nothing to send, and the same answer as a new follow.
+  if (follow.confirmedAt) return { status: "pending" };
+  after(async () => {
+    try {
+      const raw = await createToken(db, "promise-follow", address, { ttlMinutes: 3 * 24 * 60, data: { followId: follow.id } });
+      const unfollow = unfollowUrl(follow.token);
+      const message = promiseFollowConfirmEmail(ctx, { number: input.promise.number, title: input.promise.title, confirmUrl: tokenUrl("/api/tracker/follow/confirm", raw), unfollowUrl: unfollow });
+      await sendEmail(db, { to: address, subject: message.subject, html: message.html, text: message.text, kind: "promise-follow-confirm", personId: person.id, unsubscribeUrl: unfollow });
+    } catch (err) {
+      console.error("promise follow confirmation failed", err);
+    }
+  });
   return { status: "pending" };
 }
 
