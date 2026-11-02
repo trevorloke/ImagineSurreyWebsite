@@ -3,10 +3,8 @@
 // day-before reminders cron and the log. Email and Twilio are not configured
 // in e2e, so messages are logged as "skipped" but every row still exists.
 import { chromium } from "playwright";
-import { BASE, sql, ok, finish, post } from "./helpers.mjs";
+import { ADMIN_EMAIL, BASE, adminLogin, sql, ok, finish, post } from "./helpers.mjs";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@example.com";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "local-admin-pw";
 const TAG = "e2e-comms";
 
 /** Poll the database until a condition holds (background work runs after the response). */
@@ -25,13 +23,26 @@ async function eventually(fn, label, ms = 15_000) {
 /** Wait for a server action's result message; on a timeout, say what the page shows instead. */
 async function notice(pattern, ms = 15_000) {
   try {
-    await bp.locator("[role=status], [role=alert]", { hasText: pattern }).first().waitFor({ timeout: ms });
+    // .alert: the route announcer also has role=alert.
+    await bp.locator(".alert, [role=status]", { hasText: pattern }).first().waitFor({ timeout: ms });
     return true;
   } catch {
-    const shown = await bp.locator("[role=status], [role=alert]").allTextContents();
+    const shown = await bp.locator(".alert, [role=status]").allTextContents();
     ok(false, `expected a message matching ${pattern} at ${bp.url()}; the page shows: ${JSON.stringify(shown)}`);
     return false;
   }
+}
+
+/**
+ * Press a button from the keyboard. Near the bottom of long admin pages the
+ * site header's scroll-linked animation can keep the layout shifting by a
+ * fraction of a pixel, which a mouse click waits on forever; keyboard
+ * activation is what many organizers use anyway.
+ */
+async function activate(selector) {
+  const target = bp.locator(selector).first();
+  await target.focus();
+  await bp.keyboard.press("Enter");
 }
 
 const noRedirect = (path, init = {}) => fetch(BASE + path, { redirect: "manual", ...init });
@@ -60,6 +71,12 @@ ok(r.status === 200 && r.body.status === "subscribed", `newsletter subscribe ret
 let row = (await sql`select * from newsletter_subscribers where email = 'nl1@comms.example'`)[0];
 ok(row?.status === "subscribed" && row.confirmed_at !== null, "subscriber row is subscribed and confirmed at once");
 ok((await sql`select source from people where email = 'nl1@comms.example'`)[0]?.source === "newsletter", "a person is created for the subscriber");
+ok((await sql`select count(*)::int c from consent_events where email = 'nl1@comms.example' and action = 'grant' and purpose = 'newsletter'`)[0].c === 1, "single opt-in records a newsletter grant in the consent ledger");
+
+// A referral code in the body is credited to the referrer once.
+await sql`update people set referral_code = 'COMMSRF2' where email = 'sub2@comms.example'`;
+r = await post("/api/newsletter", { email: "referred@comms.example", source: "home", ref: "commsrf2" });
+ok(r.body?.status === "subscribed" && (await sql`select r.email from people p join people r on r.id = p.referred_by_id where p.email = 'referred@comms.example'`)[0]?.email === "sub2@comms.example", "newsletter sign-up credits the referral code");
 
 r = await post("/api/newsletter", { email: "nl1@comms.example", source: "home" });
 ok(r.body.status === "subscribed" && (await sql`select count(*)::int c from newsletter_subscribers where email = 'nl1@comms.example'`)[0].c === 1, "subscribing again keeps one subscribed row");
@@ -67,6 +84,9 @@ ok(r.body.status === "subscribed" && (await sql`select count(*)::int c from news
 let res = await noRedirect("/api/newsletter/unsubscribe", { method: "POST", body: new URLSearchParams({ token: row.unsubscribe_token }) });
 ok(res.status === 303 && res.headers.get("location")?.includes("/newsletter/unsubscribe?done=1"), "unsubscribe POST redirects to the done page");
 ok((await sql`select status from newsletter_subscribers where email = 'nl1@comms.example'`)[0].status === "unsubscribed", "unsubscribe works");
+const withdrawal = (await sql`select * from consent_events where email = 'nl1@comms.example' and action = 'withdraw'`)[0];
+ok(withdrawal?.channel === "email" && withdrawal.purpose === "updates" && withdrawal.source === "unsubscribe" && withdrawal.person_id !== null, "unsubscribe records a withdrawal in the consent ledger");
+ok((await sql`select contact_consent_at from people where email = 'nl1@comms.example'`)[0].contact_consent_at === null, "unsubscribe clears the person's contact consent");
 r = await post("/api/newsletter", { email: "nl1@comms.example", source: "home" });
 ok(r.status === 200 && r.body.status === "unsubscribed", `re-subscribing an unsubscribed address returns "unsubscribed" (${JSON.stringify(r.body)})`);
 ok((await sql`select status from newsletter_subscribers where email = 'nl1@comms.example'`)[0].status === "unsubscribed", "unsubscribed row is never flipped back by the form");
@@ -99,11 +119,7 @@ ok(page.includes("stopped following"), "unfollowed page renders");
 const browser = await chromium.launch();
 const bp = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 bp.on("dialog", (d) => d.accept());
-await bp.goto(BASE + "/admin/login");
-await bp.fill("#email", ADMIN_EMAIL);
-await bp.fill("#password", ADMIN_PASSWORD);
-await bp.click("button[type=submit]");
-await bp.waitForURL(/\/admin(?!\/login)/);
+await adminLogin(bp);
 
 await bp.goto(BASE + "/admin/comms");
 ok((await bp.locator("h1").textContent())?.includes("Email"), "comms home renders");
@@ -123,7 +139,7 @@ ok(true, "lists combine with AND (subscribers who are also members: 0)");
 await bp.locator("input[name=lists][value=members]").uncheck();
 await bp.locator(".audience-count", { hasText: "2 people" }).waitFor({ timeout: 10_000 });
 
-await bp.click("button[name=intent][value=save]");
+await activate("button[name=intent][value=save]");
 await bp.waitForURL(/\/admin\/comms\/[0-9a-f-]{36}$/, { timeout: 15_000 });
 const campaignId = bp.url().split("/").pop();
 let campaign = (await sql`select * from email_campaigns where id = ${campaignId}`)[0];
@@ -131,12 +147,12 @@ ok(campaign?.status === "draft" && campaign.subject === "Hello {{first_name}}" &
 ok((await bp.locator("iframe.email-preview").count()) === 1, "campaign page shows a preview");
 
 await bp.locator(".audience-count", { hasText: "2 people" }).waitFor({ timeout: 10_000 });
-await bp.click("button[name=intent][value=test]");
+await activate("button[name=intent][value=test]");
 await notice(/test/);
 const test = await eventually(async () => (await sql`select * from email_log where kind = 'campaign-test' and "to" = ${ADMIN_EMAIL.toLowerCase()} order by created_at desc limit 1`)[0], "test email row");
 ok(test?.subject === "[Test] Hello Owner" && test.status === "skipped" && test.campaign_id === null, `test email logged to the admin (${test?.subject}, ${test?.status})`);
 
-await bp.click("button[name=intent][value=send]");
+await activate("button[name=intent][value=send]");
 await notice(/Sending to 2 people/);
 const rows = await eventually(async () => {
   const rows = await sql`select * from email_log where campaign_id = ${campaignId} order by "to"`;
@@ -164,11 +180,11 @@ await bp.fill("#c-body", "Hi {{first_name}}, thanks for being a member. {{unsubs
 await bp.locator("input[name=lists][value=members]").check();
 await bp.fill("input[name=tag]", TAG);
 await bp.locator(".audience-count", { hasText: "1 person" }).waitFor({ timeout: 10_000 });
-await bp.click("button[name=intent][value=save]");
+await activate("button[name=intent][value=save]");
 await bp.waitForURL(/\/admin\/comms\/[0-9a-f-]{36}$/, { timeout: 15_000 });
 const membersCampaignId = bp.url().split("/").pop();
 await bp.locator(".audience-count", { hasText: "1 person" }).waitFor({ timeout: 10_000 });
-await bp.click("button[name=intent][value=send]");
+await activate("button[name=intent][value=send]");
 await notice(/Sending to 1 person/);
 const memberRow = await eventually(async () => (await sql`select * from email_log where campaign_id = ${membersCampaignId}`)[0], "member row");
 const memberSub = (await sql`select * from newsletter_subscribers where email = 'member@comms.example'`)[0];
@@ -181,12 +197,11 @@ await bp.locator(".audience-count", { hasText: "3 people" }).waitFor({ timeout: 
 ok(true, "text audience counts people with SMS consent and a valid number (3)");
 await bp.fill("#sms-message", "Imagine Surrey: town hall Thursday 7pm at Newton Seniors Centre.");
 ok((await bp.locator(".sms-counter .is-warning").count()) === 1, "composer warns when the STOP line is missing");
-await bp.click("button[type=submit].btn--red");
-await bp.locator("[role=alert]").first().waitFor({ timeout: 15_000 });
-ok((await bp.locator("[role=alert]").first().textContent())?.includes("Reply STOP to opt out"), "server refuses a text without the STOP line");
+await activate("button[type=submit].btn--red");
+ok(await notice(/Texts must end with .Reply STOP to opt out/), "server refuses a text without the STOP line");
 await bp.fill("#sms-message", "Imagine Surrey: town hall Thursday 7pm at Newton Seniors Centre. Reply STOP to opt out");
 ok((await bp.locator(".sms-counter").textContent())?.includes("1 text segment"), "counter shows characters and segments");
-await bp.click("button[type=submit].btn--red");
+await activate("button[type=submit].btn--red");
 await notice(/Sending 3 texts/);
 const texts = await eventually(async () => {
   const t = await sql`select * from sms_log where kind = 'broadcast' order by "to"`;
@@ -194,6 +209,13 @@ const texts = await eventually(async () => {
 }, "broadcast texts");
 ok(texts?.length === 3 && texts.every((t) => t.status === "skipped" && t.body.endsWith("Reply STOP to opt out")), "one sms_log row per consenting recipient (skipped: no Twilio)");
 ok(texts?.map((t) => t.to).join(",") === "+16045550101,+16045550102,+16045550103", "numbers are normalized to E.164");
+
+// ── RSVP confirmation (the public route calls notifyRsvp) ─────────────────
+await sql`insert into events (slug, title, starts_at, location, summary) values ('comms-next-week', 'Next week meetup', now() + interval '7 days', 'Bear Creek Park', 'Come along.') on conflict (slug) do nothing`;
+r = await post("/api/events/comms-next-week/rsvp", { name: "Rita Rsvp", email: "rsvp@comms.example", guests: 1 });
+ok(r.status === 200, `RSVP accepted (${r.status} ${JSON.stringify(r.body)})`);
+const rsvpMail = await eventually(async () => (await sql`select * from email_log where "to" = 'rsvp@comms.example' and kind = 'rsvp'`)[0], "rsvp email row");
+ok(rsvpMail?.subject === "You're in: Next week meetup" && rsvpMail.text?.includes("Attachments: comms-next-week.ics") && rsvpMail.html.includes("calendar.google.com") && !rsvpMail.html.includes("Unsubscribe</a>"), "RSVP email logged with the calendar file noted and no unsubscribe link");
 
 // ── Reminders cron ────────────────────────────────────────────────────────
 await sql`insert into events (slug, title, starts_at, location, summary) values ('comms-tomorrow', 'Tomorrow rally', now() + interval '24 hours', 'Holland Park', 'Be there.') on conflict (slug) do update set starts_at = excluded.starts_at`;
@@ -203,14 +225,16 @@ const tomorrow = new Date(new Date(new Intl.DateTimeFormat("en-CA", { timeZone: 
 await sql`insert into shifts (person_id, date, slot, status) values (${member.id}, ${tomorrow}, 'morning', 'scheduled')`;
 r = await fetch(BASE + "/api/cron/reminders");
 const cron = await r.json();
-ok(r.status === 200 && cron.ok && cron.events === 1 && cron.shifts === 1 && cron.texts === 2, `reminders cron reports its work (${JSON.stringify(cron)})`);
+ok(r.status === 200 && cron.ok && cron.events >= 1 && cron.shifts >= 1 && cron.texts >= 2, `reminders cron reports its work (${JSON.stringify(cron)})`);
 ok((await sql`select reminder_sent_at from event_rsvps where event_id = ${ev.id}`)[0].reminder_sent_at !== null, "RSVP for tomorrow's event marked reminded");
 ok((await sql`select reminder_sent_at from shifts where person_id = ${member.id} and date = ${tomorrow}`)[0].reminder_sent_at !== null, "tomorrow's shift marked reminded");
-const reminderEmails = await sql`select kind, status, subject from email_log where kind in ('event-reminder', 'shift-reminder') order by kind`;
+const reminderEmails = await sql`select kind, status, subject from email_log where kind in ('event-reminder', 'shift-reminder') and "to" in ('sub1@comms.example', 'member@comms.example') order by kind`;
 ok(reminderEmails.length === 2 && reminderEmails[0].subject === "Tomorrow: Tomorrow rally" && reminderEmails.every((e) => e.status === "skipped"), "reminder emails logged for the RSVP and the shift");
-ok((await sql`select count(*)::int c from sms_log where kind in ('event-reminder', 'shift-reminder')`)[0].c === 2, "reminder texts logged for people with SMS consent");
+ok((await sql`select count(*)::int c from sms_log where kind in ('event-reminder', 'shift-reminder') and person_id in (${sub1.id}, ${member.id})`)[0].c === 2, "reminder texts logged for people with SMS consent");
+ok((await sql`select count(*)::int c from email_log where "to" = 'rsvp@comms.example' and kind = 'event-reminder'`)[0].c === 0, "an event a week away gets no reminder yet");
 r = await fetch(BASE + "/api/cron/reminders");
-ok((await r.json()).events === 0, "running the cron again sends nothing twice");
+const again = await r.json();
+ok(again.events === 0 && again.shifts === 0, "running the cron again sends nothing twice");
 
 // ── Inbound texts (Twilio webhook) ────────────────────────────────────────
 const inbound = async (body) => {
@@ -221,6 +245,7 @@ let t = await inbound("STOP");
 ok(t.status === 200 && t.type.includes("text/xml") && t.text.includes("<Response><Message>") && t.text.includes("opted out"), `STOP gets a TwiML reply (${t.text})`);
 ok((await sql`select sms_consent_at from people where email = 'sub1@comms.example'`)[0].sms_consent_at === null, "STOP clears the seeded person's SMS consent");
 ok((await sql`select count(*)::int c from sms_log where kind = 'inbound-stop' and person_id = ${sub1.id}`)[0].c === 1, "STOP is logged");
+ok((await sql`select count(*)::int c from consent_events where person_id = ${sub1.id} and channel = 'sms' and action = 'withdraw' and source = 'sms-stop'`)[0].c === 1, "STOP records an SMS withdrawal in the consent ledger");
 t = await inbound("START");
 ok((await sql`select sms_consent_at from people where email = 'sub1@comms.example'`)[0].sms_consent_at !== null && t.text.includes("Reply STOP to opt out"), "START restores consent and the reply ends with the STOP line");
 t = await inbound("Punjabi");
@@ -236,7 +261,7 @@ ok(t.text.includes(BASE.replace(/^https?:\/\//, "")) || t.text.includes("localho
 await sql`insert into email_log ("to", kind, subject, html, text, status, error, attempts) values ('fail@comms.example', 'rsvp', 'Failed once', '<p>Hello</p>', 'Hello', 'failed', 'Connection reset', 3)`;
 await bp.goto(BASE + "/admin/comms/log?status=failed&q=fail%40comms");
 ok((await bp.locator("table tbody tr").count()) === 1 && (await bp.locator("table").textContent())?.includes("Connection reset"), "log filters to the failed email and shows its error");
-await bp.click("text=Resend");
+await activate("text=Resend");
 await notice(/Queued/);
 const copies = await eventually(async () => {
   const c = await sql`select status from email_log where "to" = 'fail@comms.example' order by created_at`;

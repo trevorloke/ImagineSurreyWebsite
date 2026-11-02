@@ -10,6 +10,7 @@ import { eventReminderEmail, eventReminderText, shiftReminderEmail, shiftReminde
 import type { MessageContext } from "@/lib/email/messages";
 import { withRef } from "@/lib/share";
 import { addDays, todayInSurrey } from "@/lib/shifts";
+import { recordConsent } from "./consent";
 import { emailContext, queueEmails, sendEmail, sendQueued, type OutgoingEmail, type SendResult } from "./email";
 import { ensureSubscriberToken, unsubscribeUrlFor } from "./newsletter";
 import { ensureReferralCode } from "./people";
@@ -314,12 +315,13 @@ export async function handleInboundSms(db: Db, ctx: MessageContext & { orgPhone?
   let reply: string;
   switch (intent.kind) {
     case "stop":
-      if (ids.length) await db.update(people).set({ smsConsentAt: null, updatedAt: now }).where(inArray(people.id, ids));
+      // Each withdrawal goes to the consent ledger, which also clears smsConsentAt.
+      for (const m of matches) await recordConsent(db, { personId: m.id, email: m.email, channel: "sms", purpose: "sms", action: "withdraw", wording: `Texted "${input.body.trim().slice(0, 40)}"`, source: "sms-stop" });
       reply = `You're opted out of ${ctx.orgName} texts and won't get any more. Reply START to opt back in.`;
       break;
     case "start":
       if (ids.length) {
-        await db.update(people).set({ smsConsentAt: now, updatedAt: now }).where(inArray(people.id, ids));
+        for (const m of matches) await recordConsent(db, { personId: m.id, email: m.email, channel: "sms", purpose: "sms", action: "grant", wording: `Texted "${input.body.trim().slice(0, 40)}"`, source: "sms-start" });
         reply = `You're opted in to ${ctx.orgName} texts about events and actions near you. ${STOP_LINE}`;
       } else {
         reply = `Thanks! We don't have this number on file yet. Join at ${ctx.siteUrl}/#join and tick texts to get updates. ${STOP_LINE}`;

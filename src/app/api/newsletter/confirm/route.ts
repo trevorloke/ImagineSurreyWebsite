@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
+import { consentMeta } from "@/lib/server/consent";
 import { confirmSubscription, type ConfirmResult } from "@/lib/server/newsletter";
 
 // The link in the double opt-in email. One click subscribes the address and
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
   let result: ConfirmResult = "invalid";
   try {
-    if (token) result = await confirmSubscription(getDb(), token);
+    if (token) result = await confirmSubscription(getDb(), token, consentMeta(req));
   } catch (err) {
     console.error("newsletter confirmation failed", err);
   }

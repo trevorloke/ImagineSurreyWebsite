@@ -217,6 +217,7 @@ describe.skipIf(!dbUrl)("with a database", () => {
     await db.delete(schema.smsLog).where(eq(schema.smsLog.personId, personId));
     await db.delete(schema.emailCampaigns).where(like(schema.emailCampaigns.subject, `%${run}%`));
     await db.delete(schema.newsletterSubscribers).where(like(schema.newsletterSubscribers.email, `%-${run}@comms-test.example`));
+    await db.delete(schema.consentEvents).where(like(schema.consentEvents.email, `%-${run}@comms-test.example`));
     await db.delete(schema.events).where(eq(schema.events.id, eventId));
     await db.delete(schema.shifts).where(eq(schema.shifts.personId, personId));
     await db.delete(schema.people).where(like(schema.people.email, `%-${run}@comms-test.example`));
@@ -235,30 +236,66 @@ describe.skipIf(!dbUrl)("with a database", () => {
     expect((await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("news")) }))?.status).toBe("unsubscribed");
   });
 
-  it("confirms a pending address once, records consent, and never re-subscribes an address that opted out", async () => {
+  it("confirms a pending address once, records consent, and honours only links sent after an unsubscribe", async () => {
     const { confirmSubscription, ensureSubscriberToken, unsubscribeByToken } = await import("@/lib/server/newsletter");
     const { createToken } = await import("@/lib/server/tokens");
     const [p] = await db.insert(schema.people).values({ email: email("confirm") }).returning();
     await ensureSubscriberToken(db, email("confirm"), p.id); // a pending row
-    const raw = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60, data: { personId: p.id, source: "test" } });
+    const raw = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60, data: { personId: p.id, source: "test", issuedAt: new Date().toISOString() } });
     expect(await confirmSubscription(db, raw)).toBe("subscribed");
     expect(await confirmSubscription(db, raw)).toBe("invalid"); // used
     const row = await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("confirm")) });
     expect(row?.status).toBe("subscribed");
     expect(row?.confirmedAt).toBeTruthy();
     expect((await db.query.people.findFirst({ where: eq(schema.people.id, p.id) }))?.contactConsentAt).toBeTruthy();
+    const grants = await db.select().from(schema.consentEvents).where(and(eq(schema.consentEvents.personId, p.id), eq(schema.consentEvents.action, "grant")));
+    expect(grants.map((g) => [g.channel, g.purpose, g.source])).toEqual([["email", "newsletter", "newsletter-confirm"]]);
 
-    // An older confirmation link clicked after unsubscribing changes nothing.
-    const stale = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60 });
+    // A link sent before the unsubscribe changes nothing.
+    const stale = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60, data: { issuedAt: new Date(Date.now() - 60_000).toISOString() } });
     expect(await unsubscribeByToken(db, row!.unsubscribeToken)).toBe(true);
+    expect((await db.query.people.findFirst({ where: eq(schema.people.id, p.id) }))?.contactConsentAt).toBeNull();
+    const [withdrawal] = await db.select().from(schema.consentEvents).where(and(eq(schema.consentEvents.personId, p.id), eq(schema.consentEvents.action, "withdraw")));
+    expect([withdrawal?.channel, withdrawal?.purpose, withdrawal?.source]).toEqual(["email", "updates", "unsubscribe"]);
     expect(await confirmSubscription(db, stale)).toBe("unsubscribed");
     expect((await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("confirm")) }))?.status).toBe("unsubscribed");
+
+    // A link sent after it (the person asked again) is their own click back.
+    const fresh = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60, data: { issuedAt: new Date(Date.now() + 1000).toISOString() } });
+    expect(await confirmSubscription(db, fresh)).toBe("subscribed");
+    expect((await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("confirm")) }))?.status).toBe("subscribed");
     expect(await confirmSubscription(db, "not-a-token")).toBe("invalid");
+  });
+
+  it("with email configured: new addresses wait as pending, and an unsubscribed one stays unsubscribed until a fresh link is clicked", async () => {
+    const { subscribe, unsubscribeByToken } = await import("@/lib/server/newsletter");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "re_1" }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.RESEND_API_KEY = "re_test_key";
+    try {
+      expect(await subscribe(db, email("double"), "home")).toBe("pending");
+      const row = await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("double")) });
+      expect(row?.status).toBe("pending");
+      expect((await db.query.people.findFirst({ where: eq(schema.people.email, email("double")) }))?.contactConsentAt).toBeNull();
+      const sent = await db.select().from(schema.emailLog).where(and(eq(schema.emailLog.to, email("double")), eq(schema.emailLog.kind, "newsletter-confirm")));
+      expect(sent).toHaveLength(1);
+      expect(sent[0].html).toContain("/api/newsletter/confirm?token=");
+
+      expect(await unsubscribeByToken(db, row!.unsubscribeToken)).toBe(true);
+      expect(await subscribe(db, email("double"), "petition:test")).toBe("pending");
+      expect((await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("double")) }))?.status).toBe("unsubscribed");
+      expect(await db.select().from(schema.emailLog).where(and(eq(schema.emailLog.to, email("double")), eq(schema.emailLog.kind, "newsletter-confirm")))).toHaveLength(2);
+    } finally {
+      delete process.env.RESEND_API_KEY;
+      vi.unstubAllGlobals();
+    }
   });
 
   it("records contact consent on single opt-in", async () => {
     const { subscribe } = await import("@/lib/server/newsletter");
-    expect(await subscribe(db, email("single"), "home")).toBe("subscribed");
+    expect(await subscribe(db, email("single"), "home", undefined, { ip: "203.0.113.9" })).toBe("subscribed");
+    const [grant] = await db.select().from(schema.consentEvents).where(eq(schema.consentEvents.email, email("single")));
+    expect([grant?.purpose, grant?.action, grant?.source, grant?.ip]).toEqual(["newsletter", "grant", "newsletter:home", "203.0.113.9"]);
     expect((await db.query.people.findFirst({ where: eq(schema.people.email, email("single")) }))?.contactConsentAt).toBeTruthy();
   });
 
