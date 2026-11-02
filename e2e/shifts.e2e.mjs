@@ -12,9 +12,15 @@ await sql`insert into people (email, first_name, last_name, phone, neighbourhood
   ('notvol@example.com','Sam','Bishop',null,'Guildford',false)
   on conflict (email) do update set interest_volunteer = excluded.interest_volunteer`;
 await sql`delete from shifts`;
+await sql`delete from shift_openings`;
 await sql`delete from volunteer_tasks where name = 'Canvassing training'`;
 const volunteers = (await sql`select count(*)::int c from people where interest_volunteer`)[0].c;
 
+const saturdayAfter = (sunday) => {
+  const d = new Date(`${sunday}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 13);
+  return d.toISOString().slice(0, 10);
+};
 const taskOf = async (first) => (await sql`select t.name from shifts s join volunteer_tasks t on t.id = s.task_id join people p on p.id = s.person_id where p.first_name = ${first}`)[0]?.name;
 
 const browser = await chromium.launch();
@@ -91,6 +97,75 @@ await page.waitForTimeout(1200);
 ok((await page.locator(".shift-chip").count()) === 3, "copy last week repeats the 3 shifts");
 await page.reload();
 ok((await page.locator(".shift-chip").count()) === 3, "shifts persist after reload");
+
+// ── Keyboard: a chip's menu is a real menu; "Move to…" moves with selects ──
+const weekSunday = new URL(page.url()).searchParams.get("week");
+const priyaChip = page.locator(".shift-chip", { hasText: "Priya" });
+const focused = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+const arrowTo = async (label) => {
+  for (let i = 0; i < 20 && (await focused()) !== label; i++) await page.keyboard.press("ArrowDown");
+};
+await priyaChip.focus();
+await page.keyboard.press("Enter");
+ok((await page.locator(".shift-menu[role=menu]").count()) === 1, "Enter on a chip opens a menu");
+ok((await page.locator(".shift-menu [role=menuitemradio]").first().evaluate((el) => el === document.activeElement)) === true, "focus moves into the menu");
+await page.keyboard.press("End");
+ok((await focused()) === "Remove from shift", "End jumps to the last item");
+await page.keyboard.press("Home");
+await arrowTo("Move to…");
+await page.keyboard.press("Enter");
+ok((await page.locator(".shift-menu[role=dialog]").count()) === 1, "Move to… opens the day and time dialog");
+const dialogSelects = page.locator(".shift-menu[role=dialog] select");
+ok((await dialogSelects.first().evaluate((el) => el === document.activeElement)) === true, "focus lands on the day select");
+await dialogSelects.nth(0).selectOption({ index: 5 });
+await dialogSelects.nth(1).selectOption("evening");
+await dialogSelects.nth(1).focus();
+await page.keyboard.press("Tab");
+ok((await focused()) === "Move", "Tab reaches the Move button");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(500);
+const kbMoved = (await sql`select extract(dow from date)::int || ' ' || slot as v from shifts s join people p on p.id = s.person_id where p.first_name = 'Priya' and date >= ${weekSunday}`)[0]?.v;
+ok(kbMoved === "5 evening", "keyboard move via the menu: " + kbMoved);
+ok((await cell(5, 2).locator(".shift-chip", { hasText: "Priya" }).count()) === 1, "moved chip shows in Friday evening");
+ok((await cell(5, 2).locator(".shift-chip").evaluate((el) => el === document.activeElement)) === true, "focus follows the moved chip");
+
+await page.keyboard.press("Enter");
+await arrowTo("Confirmed");
+await page.keyboard.press("Enter");
+await page.waitForTimeout(400);
+ok((await sql`select status from shifts s join people p on p.id = s.person_id where p.first_name = 'Priya' and date >= ${weekSunday}`)[0]?.status === "confirmed", "status change from the menu");
+ok((await cell(5, 2).locator(".shift-chip").textContent()).includes("Confirmed"), "chip shows its status");
+ok((await cell(5, 2).locator(".shift-chip").evaluate((el) => el === document.activeElement)) === true, "focus returns to the chip after choosing");
+await page.keyboard.press("Enter");
+await page.keyboard.press("Escape");
+ok((await page.locator(".shift-menu").count()) === 0 && (await cell(5, 2).locator(".shift-chip").evaluate((el) => el === document.activeElement)) === true, "Escape closes the menu and returns focus");
+
+ok((await page.locator(".shift-grid[role=table] [role=row]").count()) === 4, "board is a table: a header row and three slot rows");
+ok((await page.locator(".shift-grid [role=columnheader]").count()) === 8, "corner cell is a column header too");
+const badId = await page.evaluate(() => fetch("/api/admin/shifts/not-a-uuid", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "confirmed" }) }).then((r) => r.status));
+ok(badId === 404, "PATCH with a bad id is a 404");
+
+// ── Openings panel ──
+await page.click("text=+ New opening");
+await page.fill("#op-title", "Door-knocking in Newton");
+await page.fill("#op-date", saturdayAfter(weekSunday));
+await page.selectOption("#op-slot", "morning");
+await page.selectOption("#op-neighbourhood", "Newton");
+await page.fill("#op-capacity", "4");
+await page.fill("#op-location", "Newton Seniors Centre");
+await page.click('button:has-text("Add opening")');
+await page.locator(".opening-row", { hasText: "Door-knocking in Newton" }).waitFor();
+const opening = (await sql`select * from shift_openings where title = 'Door-knocking in Newton'`)[0];
+ok(opening && opening.capacity === 4 && opening.neighbourhood === "Newton" && opening.published && opening.slot === "morning", "opening created from the panel");
+const row = page.locator(".opening-row", { hasText: "Door-knocking in Newton" });
+ok((await row.locator(".opening-row-count").textContent()).includes("0 of 4"), "panel shows the sign-up count");
+await row.locator("button", { hasText: "Sign-ups" }).click();
+const emptyShown = await row.locator(".opening-signups", { hasText: "Nobody has signed up yet" }).waitFor({ timeout: 10_000 }).then(() => true, () => false);
+ok(emptyShown, "sign-ups list is empty for a new opening");
+await row.locator("button", { hasText: "Unpublish" }).click();
+await page.waitForTimeout(500);
+ok((await sql`select published from shift_openings where id = ${opening.id}`)[0].published === false, "unpublish from the panel");
+ok((await page.locator(".opening-row.is-draft", { hasText: "Door-knocking in Newton" }).count()) === 1, "draft openings are marked");
 
 const anon = await (await fetch(BASE + "/api/admin/shifts", { method: "POST", body: "{}" })).status;
 ok(anon === 401, "shift API requires admin sign-in");
