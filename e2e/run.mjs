@@ -28,6 +28,7 @@ const env = {
   STRIPE_API_BASE: `http://localhost:${stripePort}`,
   CONTRIBUTION_LIMIT_CENTS: "142970",
   MEMBERSHIP_FEE_CENTS: "1000",
+  ADMIN_EMAIL: "admin@example.com",
   ADMIN_PASSWORD: "local-admin-pw",
   ADMIN_SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
   NODE_ENV: "production",
