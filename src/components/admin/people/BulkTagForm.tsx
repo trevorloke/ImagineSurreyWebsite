@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { TextField } from "@/components/forms/Field";
-import { fieldError, Notice } from "@/components/admin/Notice";
+import { fieldDefault, fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import type { ActionState } from "@/lib/server/actions";
 import { peopleParams, type PeopleQuery } from "./query";
@@ -26,7 +26,7 @@ export function BulkTagForm({ action, query, total }: { action: Action; query: P
         <input key={key} type="hidden" name={key} value={value} />
       ))}
       {/* Named bulkTag, not tag: "tag" is the list's filter key, carried in the hidden fields above. */}
-      <TextField id="bulk-tag" name="bulkTag" label="Tag" inputClassName="input--compact" maxLength={40} required error={fieldError(state, "bulkTag")} />
+      <TextField id="bulk-tag" name="bulkTag" label="Tag" defaultValue={fieldDefault(state, "bulkTag")} inputClassName="input--compact" maxLength={40} required error={fieldError(state, "bulkTag")} />
       <div className="bulk__buttons">
         <SubmitButton name="mode" value="add" className="btn btn--navy btn--compact" pendingText="Tagging…" confirm={`Add this tag to ${who}?`}>
           Add tag to all
