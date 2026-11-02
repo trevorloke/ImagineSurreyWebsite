@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { after } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { eventRsvps, events } from "@/lib/db/schema";
+import { eventRsvps, events, newsletterSubscribers } from "@/lib/db/schema";
 import { neighbourhoodForPostalCode, normalizePostalCode } from "@/lib/neighbourhoods";
 import { error, json, parseBody } from "@/lib/server/api";
 import { creditReferral, sourceLabel, trackingFromRequest } from "@/lib/server/attribution";
@@ -85,7 +85,11 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/events/[slu
         ...consentMeta(req),
       });
     }
-    if (newsletter) await subscribe(db, email, `event:${slug}`, person.id);
+    if (newsletter) {
+      // An address that unsubscribed is only re-subscribed by its own confirmation click, never by a public form.
+      const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, email), columns: { status: true } });
+      if (existing?.status !== "unsubscribed") await subscribe(db, email, `event:${slug}`, person.id);
+    }
 
     const rsvpId = outcome.rsvpId;
     if (rsvpId) {

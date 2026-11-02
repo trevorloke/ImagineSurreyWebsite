@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { after, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
-import { campaignSignatures, campaigns } from "@/lib/db/schema";
+import { campaignSignatures, campaigns, newsletterSubscribers } from "@/lib/db/schema";
 import { neighbourhoodForPostalCode, normalizePostalCode } from "@/lib/neighbourhoods";
 import { error, json, parseBody } from "@/lib/server/api";
 import { creditReferral, sourceLabel, trackingFromRequest } from "@/lib/server/attribution";
@@ -64,8 +64,10 @@ export async function POST(req: NextRequest) {
         source: `petition:${slug}`,
         ...meta,
       });
-      // A refused grant (the address withdrew earlier) must not re-subscribe it either.
-      if (granted) await subscribe(db, email, `petition:${slug}`, person.id);
+      // A refused grant (the address withdrew earlier) must not re-subscribe it either, and an
+      // address that unsubscribed is only re-subscribed by its own confirmation click.
+      const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, email.toLowerCase()), columns: { status: true } });
+      if (granted && existing?.status !== "unsubscribed") await subscribe(db, email, `petition:${slug}`, person.id);
     }
     // Texts only to a number typed into this form, never one already on file.
     if (data.smsConsent && normalizePhone(phone)) {
