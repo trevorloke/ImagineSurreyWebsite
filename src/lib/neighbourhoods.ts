@@ -1,4 +1,5 @@
 export const NEIGHBOURHOODS = ["Newton", "Whalley", "Fleetwood", "Cloverdale", "Guildford", "South Surrey"] as const;
+export type Neighbourhood = (typeof NEIGHBOURHOODS)[number];
 export const OUTSIDE_SURREY = "Outside Surrey";
 
 export const CAMPUSES = ["Kwantlen Cloverdale", "Kwantlen Newton", "SFU Surrey", "Another campus"] as const;
@@ -41,3 +42,50 @@ export function ageOn(birthdate: string, today: Date): number | undefined {
 }
 
 export const MIN_MEMBER_AGE = 14;
+
+// ── Neighbourhood pages ───────────────────────────────────────────────────
+// Each town centre has a page at /neighbourhoods/<slug>.
+
+export const NEIGHBOURHOOD_SLUGS = ["newton", "whalley", "fleetwood", "cloverdale", "guildford", "south-surrey"] as const;
+export type NeighbourhoodSlug = (typeof NEIGHBOURHOOD_SLUGS)[number];
+
+const SLUG_TO_NAME: Record<NeighbourhoodSlug, Neighbourhood> = {
+  newton: "Newton",
+  whalley: "Whalley",
+  fleetwood: "Fleetwood",
+  cloverdale: "Cloverdale",
+  guildford: "Guildford",
+  "south-surrey": "South Surrey",
+};
+
+export function isNeighbourhood(name: string | null | undefined): name is Neighbourhood {
+  return (NEIGHBOURHOODS as readonly string[]).includes(name ?? "");
+}
+
+/** "South Surrey" → "south-surrey"; undefined for anything that is not a town centre. */
+export function neighbourhoodSlug(name: string | null | undefined): NeighbourhoodSlug | undefined {
+  if (!name) return undefined;
+  const entry = Object.entries(SLUG_TO_NAME).find(([, n]) => n.toLowerCase() === name.trim().toLowerCase());
+  return entry?.[0] as NeighbourhoodSlug | undefined;
+}
+
+/** "south-surrey" → "South Surrey"; undefined for an unknown slug. */
+export function neighbourhoodFromSlug(slug: string | null | undefined): Neighbourhood | undefined {
+  if (!slug) return undefined;
+  return SLUG_TO_NAME[slug.trim().toLowerCase() as NeighbourhoodSlug];
+}
+
+/** The forward sortation areas (first three postal-code characters) in each town centre. */
+export const NEIGHBOURHOOD_FSAS: Record<Neighbourhood, string[]> = NEIGHBOURHOODS.reduce(
+  (acc, name) => {
+    acc[name] = Object.keys(FSA_TO_NEIGHBOURHOOD)
+      .filter((fsa) => FSA_TO_NEIGHBOURHOOD[fsa] === name)
+      .sort();
+    return acc;
+  },
+  {} as Record<Neighbourhood, string[]>,
+);
+
+export function fsasForNeighbourhood(name: string): string[] {
+  return isNeighbourhood(name) ? NEIGHBOURHOOD_FSAS[name] : [];
+}

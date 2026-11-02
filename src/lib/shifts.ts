@@ -85,3 +85,86 @@ export function formatWeekRange(sunday: string): string {
     });
   return `${fmt(sunday, false)} – ${fmt(addDays(sunday, 6), true)}`;
 }
+
+export const SLOT_BY_ID: Record<Slot, (typeof SLOTS)[number]> = Object.fromEntries(SLOTS.map((s) => [s.id, s])) as Record<Slot, (typeof SLOTS)[number]>;
+
+export function slotLabel(slot: Slot): string {
+  const s = SLOT_BY_ID[slot];
+  return `${s.label} (${s.hours})`;
+}
+
+// What happened on a shift. "cancelled" exists in the database for volunteers
+// who pull out; the board offers the four an organizer sets.
+export const SHIFT_STATUSES = [
+  { id: "scheduled", label: "Scheduled" },
+  { id: "confirmed", label: "Confirmed" },
+  { id: "attended", label: "Attended" },
+  { id: "no_show", label: "No show" },
+] as const;
+export type ShiftStatus = (typeof SHIFT_STATUSES)[number]["id"] | "cancelled";
+
+export const STATUS_LABELS: Record<ShiftStatus, string> = { scheduled: "Scheduled", confirmed: "Confirmed", attended: "Attended", no_show: "No show", cancelled: "Cancelled" };
+
+/** Spots left on an opening: capacity minus the people signed up, never below zero. */
+export function spotsLeft(capacity: number, signedUp: number): number {
+  return Math.max(0, capacity - Math.max(0, signedUp));
+}
+
+export function isFull(capacity: number | null | undefined, signedUp: number): boolean {
+  return capacity != null && spotsLeft(capacity, signedUp) === 0;
+}
+
+/** "Saturday, November 7" for a YYYY-MM-DD date. */
+export function formatLongDate(isoDate: string, withYear = false): string {
+  return new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric", ...(withYear && { year: "numeric" }), timeZone: "UTC" });
+}
+
+/** Group dated items by the Sunday that starts their week, earliest week first. */
+export function groupByWeek<T extends { date: string }>(items: T[]): { sunday: string; label: string; items: T[] }[] {
+  const weeks = new Map<string, T[]>();
+  for (const item of [...items].sort((a, b) => a.date.localeCompare(b.date))) {
+    const sunday = weekStart(item.date);
+    weeks.set(sunday, [...(weeks.get(sunday) ?? []), item]);
+  }
+  return [...weeks.entries()].map(([sunday, list]) => ({ sunday, label: formatWeekRange(sunday), items: list }));
+}
+
+/** The next Saturday strictly after a date (a week ahead when the date is itself a Saturday). */
+export function nextSaturday(isoDate: string): string {
+  const day = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+  return addDays(isoDate, ((6 - day + 6) % 7) + 1);
+}
+
+/** What the sign-up API returns and the form shows after a successful sign-up. */
+export type SignupConfirmation = {
+  openingId: string;
+  title: string;
+  date: string;
+  dateLabel: string;
+  slot: Slot;
+  slotLabel: string;
+  location: string;
+  neighbourhood: string | null;
+  googleUrl: string;
+  icsUrl: string;
+  /** The volunteer page with the signer's referral code, for the share buttons. */
+  shareUrl: string;
+  spotsLeft: number;
+};
+
+/** A published opening as the public site shows it. Plain data: it is served from the cache as JSON. */
+export type PublicOpening = {
+  id: string;
+  date: string;
+  slot: Slot;
+  title: string;
+  location: string;
+  neighbourhood: string | null;
+  notes: string;
+  capacity: number;
+  taskId: string | null;
+  taskName: string | null;
+  taskColor: string | null;
+  signedUp: number;
+  spotsLeft: number;
+};
