@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { loginWithPassword, requestMeta, SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/admin-auth";
+import { safeNext } from "@/lib/server/admin-redirect";
 import { audit } from "@/lib/server/audit";
-
-export function safeNext(value: unknown): string {
-  return typeof value === "string" && /^\/admin(\/[^/]|$)/.test(value) ? value : "/admin";
-}
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();
