@@ -35,6 +35,14 @@ export function encodeTrackingCookie(t: Tracking): string {
   return p.toString();
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function decodeTrackingCookie(value: string | undefined | null): Tracking {
   if (!value) return { ref: null, source: null };
   const p = new URLSearchParams(value);
@@ -53,7 +61,7 @@ export function trackingCookieOptions() {
 export function trackingFromRequest(req: Request, body: { source?: unknown; ref?: unknown } = {}): Tracking {
   const cookieHeader = req.headers.get("cookie") ?? "";
   const match = cookieHeader.split(/;\s*/).find((c) => c.startsWith(`${TRACKING_COOKIE}=`));
-  const fromCookie = decodeTrackingCookie(match ? decodeURIComponent(match.slice(TRACKING_COOKIE.length + 1)) : null);
+  const fromCookie = decodeTrackingCookie(match ? safeDecode(match.slice(TRACKING_COOKIE.length + 1)) : null);
   return { ref: cleanRef(body.ref) ?? fromCookie.ref, source: cleanSource(body.source) ?? fromCookie.source };
 }
 
