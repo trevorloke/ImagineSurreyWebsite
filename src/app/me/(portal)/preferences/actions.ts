@@ -33,7 +33,7 @@ const save = memberAction("/me/preferences", schema, async (data, { person, meta
   const postalCode = data.postalCode ? normalizePostalCode(data.postalCode) : null;
   const neighbourhood = postalCode ? (neighbourhoodForPostalCode(postalCode) ?? OUTSIDE_SURREY) : undefined;
 
-  const common = { personId: person.id, email: person.email, source: "preferences", ip: meta.ip, userAgent: meta.userAgent } as const;
+  const common = { personId: person.id, email: person.email, source: "preferences", ip: meta.ip, userAgent: meta.userAgent, verified: true } as const;
   if (data.updates !== Boolean(person.contactConsentAt)) {
     await recordConsent(db, { ...common, channel: "email", purpose: "updates", action: data.updates ? "grant" : "withdraw", wording: CONSENT_WORDING.updates });
   }

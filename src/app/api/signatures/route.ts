@@ -10,6 +10,7 @@ import { countSignatures } from "@/lib/server/campaigns";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
 import { subscribe } from "@/lib/server/newsletter";
+import { normalizePhone } from "@/lib/server/sms";
 import { notifySignature } from "@/lib/server/notifications";
 import { findOrCreatePerson } from "@/lib/server/people";
 import { signatureSchema } from "@/lib/validation";
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     const meta = consentMeta(req);
     if (data.updatesConsent) {
-      await recordConsent(db, {
+      const granted = await recordConsent(db, {
         personId: person.id,
         email,
         channel: "email",
@@ -63,9 +64,11 @@ export async function POST(req: NextRequest) {
         source: `petition:${slug}`,
         ...meta,
       });
-      await subscribe(db, email, `petition:${slug}`, person.id);
+      // A refused grant (the address withdrew earlier) must not re-subscribe it either.
+      if (granted) await subscribe(db, email, `petition:${slug}`, person.id);
     }
-    if (data.smsConsent && (phone || person.phone)) {
+    // Texts only to a number typed into this form, never one already on file.
+    if (data.smsConsent && normalizePhone(phone)) {
       await recordConsent(db, {
         personId: person.id,
         email,

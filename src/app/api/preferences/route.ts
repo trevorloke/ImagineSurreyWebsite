@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
         action: data.updates ? "grant" : "withdraw",
         wording: CONSENT_WORDING.updates,
         source: "preferences",
+        verified: true,
         ...meta,
       });
     }
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
         action: data.sms ? "grant" : "withdraw",
         wording: CONSENT_WORDING.sms,
         source: "preferences",
+        verified: true,
         ...meta,
       });
     }
