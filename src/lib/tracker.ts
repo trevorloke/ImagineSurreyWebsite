@@ -4,8 +4,9 @@ export const PROMISE_STATUSES = [
   { id: "not_started", label: "Not started", color: "#E3E7EF", text: "#0F1E33" },
   { id: "in_progress", label: "In progress", color: "#FFF100", text: "#003979" },
   { id: "partly_kept", label: "Partly kept", color: "#F28C28", text: "#0F1E33" },
-  { id: "kept", label: "Kept", color: "#1B8A4B", text: "#FFFFFF" },
-  { id: "broken", label: "Broken", color: "#EF2023", text: "#FFFFFF" },
+  // Fills with white text are ≥ 4.5:1 at 13px bold.
+  { id: "kept", label: "Kept", color: "#157A41", text: "#FFFFFF" },
+  { id: "broken", label: "Broken", color: "#D81B1E", text: "#FFFFFF" },
 ] as const;
 
 export type PromiseStatus = (typeof PROMISE_STATUSES)[number]["id"];
