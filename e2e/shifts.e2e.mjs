@@ -4,6 +4,16 @@
 import { chromium } from "playwright";
 import { BASE, sql, ok, finish, adminLogin } from "./helpers.mjs";
 
+/** Poll until the condition holds (saves are async), so a busy machine doesn't fail the suite. */
+async function until(check, ms = 10_000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
 await sql`insert into people (email, first_name, last_name, phone, neighbourhood, interest_volunteer) values
   ('priya@example.com','Priya','Sandhu','604-555-0101','Newton',true),
   ('marco@example.com','Marco','Reyes','604-555-0102','Whalley',true),
@@ -72,8 +82,7 @@ ok((await taskOf("Li")) === "Office", "click a shift to pick its task from a men
 ok((await page.locator(".roster-name", { hasText: "Marco" }).locator(".roster-count").textContent()) === "1", "roster shows shift count");
 
 await cell(2, 2).locator(".shift-chip").dragTo(page.locator(".roster-drop-hint"));
-await page.waitForTimeout(400);
-ok((await sql`select count(*)::int c from shifts s join people p on p.id = s.person_id where p.first_name = 'Marco'`)[0].c === 0, "drag shift back to the list removes it");
+ok(await until(async () => (await sql`select count(*)::int c from shifts s join people p on p.id = s.person_id where p.first_name = 'Marco'`)[0].c === 0), "drag shift back to the list removes it");
 
 await page.fill(".roster input[type=search]", "Bish");
 await page.locator(".roster-name", { hasText: "Sam Bishop" }).waitFor();
@@ -93,10 +102,9 @@ ok((await page.locator(".task-pill[aria-checked=true]", { hasText: "Canvassing" 
 await page.click('a[aria-label="Next week"]');
 await page.waitForURL(/week=/);
 await page.click("text=Copy last week");
-await page.waitForTimeout(1200);
-ok((await page.locator(".shift-chip").count()) === 3, "copy last week repeats the 3 shifts");
+ok(await until(async () => (await page.locator(".shift-chip").count()) === 3), "copy last week repeats the 3 shifts");
 await page.reload();
-ok((await page.locator(".shift-chip").count()) === 3, "shifts persist after reload");
+ok(await until(async () => (await page.locator(".shift-chip").count()) === 3), "shifts persist after reload");
 
 // ── Keyboard: a chip's menu is a real menu; "Move to…" moves with selects ──
 const weekSunday = new URL(page.url()).searchParams.get("week");

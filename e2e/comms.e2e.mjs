@@ -244,7 +244,9 @@ const inbound = async (body) => {
 let t = await inbound("STOP");
 ok(t.status === 200 && t.type.includes("text/xml") && t.text.includes("<Response><Message>") && t.text.includes("opted out"), `STOP gets a TwiML reply (${t.text})`);
 ok((await sql`select sms_consent_at from people where email = 'sub1@comms.example'`)[0].sms_consent_at === null, "STOP clears the seeded person's SMS consent");
-ok((await sql`select count(*)::int c from sms_log where kind = 'inbound-stop' and person_id = ${sub1.id}`)[0].c === 1, "STOP is logged");
+// Other suites may have stored the same test number on other people; STOP opts
+// the number out for all of them and logs one inbound row for the number.
+ok((await sql`select count(*)::int c from sms_log where kind = 'inbound-stop' and "to" = '+16045550101'`)[0].c === 1, "STOP is logged");
 ok((await sql`select count(*)::int c from consent_events where person_id = ${sub1.id} and channel = 'sms' and action = 'withdraw' and source = 'sms-stop'`)[0].c === 1, "STOP records an SMS withdrawal in the consent ledger");
 t = await inbound("START");
 ok((await sql`select sms_consent_at from people where email = 'sub1@comms.example'`)[0].sms_consent_at !== null && t.text.includes("Reply STOP to opt out"), "START restores consent and the reply ends with the STOP line");

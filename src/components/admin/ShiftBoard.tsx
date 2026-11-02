@@ -364,6 +364,7 @@ export function ShiftBoard({
           aria-label="Volunteers"
         >
           <h3 className="roster-title">Volunteers</h3>
+          <p className="small roster-drop-hint">Drop a shift here to remove it.</p>
           <input className="input" type="search" placeholder="Find or add someone" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Find a volunteer" />
           <ul className="roster-list">{visibleRoster.map((p) => rosterChip(p))}</ul>
           {visibleRoster.length === 0 && !q && <p className="small">No volunteers yet. People who tick “Volunteering” when they join appear here. Search to add anyone else.</p>}
@@ -375,7 +376,6 @@ export function ShiftBoard({
               <ul className="roster-list">{others.map((p) => rosterChip(p, true))}</ul>
             </>
           )}
-          <p className="small roster-drop-hint">Drop a shift here to remove it.</p>
         </aside>
 
         <div className="shift-grid-wrap">

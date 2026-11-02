@@ -1891,8 +1891,14 @@ a.product:hover {
   font-weight: 600;
 }
 .roster-drop-hint {
-  margin-top: auto;
-  padding-top: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  text-align: center;
+}
+.roster.is-drop .roster-drop-hint {
+  border-color: var(--red);
 }
 .shift-grid-wrap {
   flex: 1 1 auto;
