@@ -43,7 +43,7 @@ export function publicFormContext(req: Request, body: { source?: unknown; ref?: 
  * The donate form's newsletter tick, word for word as the form shows it
  * (src/components/forms/DonateForm.tsx), for the consent ledger.
  */
-export const DONATION_NEWSLETTER_WORDING = "Send me the Imagine Surrey newsletter. I can unsubscribe at any time.";
+export const DONATION_NEWSLETTER_WORDING = CONSENT_WORDING.newsletter;
 
 /**
  * Express consent from a public form's own ticks, and nothing without them:

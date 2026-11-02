@@ -7,6 +7,7 @@ import { DEFAULT_TASKS } from "../src/lib/shifts";
 import { seed as seedOpenings } from "../src/content/seeds/openings";
 import { seed as seedTrackerDates } from "../src/content/seeds/tracker";
 import { seed as seedComms } from "../src/content/seeds/comms";
+import { seed as seedPages } from "../src/content/seeds/pages";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("Set DATABASE_URL first (see .env.example).");
@@ -50,6 +51,8 @@ await seedTrackerDates(db);
 await seedOpenings(db);
 // One sample draft email campaign, only when there are none.
 await seedComms(db);
+// Draft privacy policy and accessibility pages (only when missing).
+await seedPages(db);
 // The pledge and petition the home page is built around.
 await db.insert(campaigns).values(seedCampaigns).onConflictDoNothing({ target: campaigns.slug });
 await client.end();

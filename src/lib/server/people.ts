@@ -11,7 +11,8 @@ export type Person = typeof people.$inferSelect;
 // Flags where "yes" from any form should stick.
 const OR_FIELDS = new Set<keyof PersonFields>(["student", "interestVolunteer", "interestLawnSign"]);
 // Fields public forms never set; the portal and admin use updatePerson for them.
-const PUBLIC_IGNORED = new Set<keyof PersonFields>(["tags", "locale"]);
+// (A language preference is only filled in when blank, like every other field.)
+const PUBLIC_IGNORED = new Set<keyof PersonFields>(["tags"]);
 
 function clean(fields: PersonFields): Partial<PersonInsert> {
   return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined && v !== "")) as Partial<PersonInsert>;

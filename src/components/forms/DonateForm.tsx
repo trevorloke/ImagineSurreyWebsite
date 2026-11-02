@@ -1,5 +1,6 @@
 "use client";
 
+import { CONSENT_WORDING } from "@/lib/consent-wording";
 import { useState } from "react";
 import { MIN_DONATION_CENTS, starClubCents } from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
@@ -94,7 +95,7 @@ export function DonateForm({
         </Checkbox>
       </fieldset>
       <Checkbox id="d-newsletter" name="newsletter" error={fields.newsletter}>
-        Send me the Imagine Surrey newsletter. I can unsubscribe at any time.
+        {CONSENT_WORDING.newsletter}
       </Checkbox>
 
       <ErrorSummary ref={summaryRef} error={error} fields={summaryFields} />
