@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
-import { fieldError, Notice } from "@/components/admin/Notice";
+import { fieldDefault, fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { TextField } from "@/components/forms/Field";
 import type { ActionState } from "@/lib/server/actions";
@@ -13,7 +13,7 @@ export function RenameForm({ action, name }: { action: Action; name: string }) {
   return (
     <form action={formAction} className="stack" style={{ gap: 12 }}>
       <Notice state={state} />
-      <TextField id="account-name" name="name" label="Your name" defaultValue={name} maxLength={80} required error={fieldError(state, "name")} autoComplete="name" />
+      <TextField id="account-name" name="name" label="Your name" defaultValue={fieldDefault(state, "name", name)} maxLength={80} required error={fieldError(state, "name")} autoComplete="name" />
       <div>
         <SubmitButton className="btn btn--outline btn--compact" pendingText="Saving…">
           Save name

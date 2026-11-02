@@ -3,7 +3,7 @@ import { BulkTagForm } from "@/components/admin/people/BulkTagForm";
 import { describeQuery, hasFilters, MEMBERSHIP_FILTERS, NEWSLETTER_FILTERS, PAGE_SIZE, parsePeopleQuery, peopleHref, SMS_FILTERS, SORTS, type PeopleQuery } from "@/components/admin/people/query";
 import { getDb } from "@/lib/db";
 import { NEIGHBOURHOODS, OUTSIDE_SURREY } from "@/lib/neighbourhoods";
-import { requireAdmin } from "@/lib/server/admin-auth";
+import { can, requireAdmin } from "@/lib/server/admin-auth";
 import { filterFacets, searchSupporters, type PersonRow } from "@/lib/server/supporters";
 import { bulkTagAction } from "./actions";
 import "./people.css";
@@ -49,8 +49,9 @@ function Pager({ query, total }: { query: PeopleQuery; total: number }) {
 }
 
 export default async function AdminPeople({ searchParams }: PageProps<"/admin/people">) {
-  await requireAdmin("people");
-  const query = parsePeopleQuery(await searchParams);
+  const user = await requireAdmin("people");
+  const money = can(user, "money");
+  const query = parsePeopleQuery(await searchParams, { money });
   const db = getDb();
   const [{ rows, total }, facets] = await Promise.all([searchSupporters(db, query), filterFacets(db)]);
   const first = total === 0 ? 0 : (query.page - 1) * PAGE_SIZE + 1;
@@ -170,10 +171,12 @@ export default async function AdminPeople({ searchParams }: PageProps<"/admin/pe
             <input type="checkbox" name="lawnsign" value="1" defaultChecked={query.lawnsign} />
             <span>Wants a lawn sign</span>
           </label>
-          <label className="check">
-            <input type="checkbox" name="donated" value="1" defaultChecked={query.donated} />
-            <span>Donated this year</span>
-          </label>
+          {money && (
+            <label className="check">
+              <input type="checkbox" name="donated" value="1" defaultChecked={query.donated} />
+              <span>Donated this year</span>
+            </label>
+          )}
         </div>
         <div className="crm-filters__actions">
           <button type="submit" className="btn btn--navy btn--compact">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { fieldError, Notice } from "@/components/admin/Notice";
+import { fieldDefault, fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { TextField } from "@/components/forms/Field";
 import type { ActionState } from "@/lib/server/actions";
@@ -36,7 +36,7 @@ export function TagsEditor({ id, tags, suggestions, addAction, removeAction }: {
       <form action={add} className="stack" style={{ gap: 10 }}>
         <Notice state={addState} />
         <input type="hidden" name="id" value={id} />
-        <TextField id="new-tag" name="tag" label="Add a tag" list="tag-suggestions" maxLength={40} required inputClassName="input--compact" error={fieldError(addState, "tag")} autoComplete="off" />
+        <TextField id="new-tag" name="tag" label="Add a tag" defaultValue={fieldDefault(addState, "tag")} list="tag-suggestions" maxLength={40} required inputClassName="input--compact" error={fieldError(addState, "tag")} autoComplete="off" />
         <datalist id="tag-suggestions">
           {suggestions.map((s) => (
             <option key={s} value={s} />

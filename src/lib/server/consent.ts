@@ -1,7 +1,7 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { consentEvents, people } from "@/lib/db/schema";
+import { consentEvents, newsletterSubscribers, people } from "@/lib/db/schema";
 
 export type ConsentChannel = "email" | "sms";
 export type ConsentPurpose = "newsletter" | "updates" | "sms" | "fundraising" | "volunteer";
@@ -20,17 +20,51 @@ export type ConsentInput = {
   source?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /**
+   * True only when the request proves control of the address: the preference
+   * centre with a token, or a signed-in member. An unverified grant (any
+   * public form) never reverses an earlier withdrawal.
+   */
+  verified?: boolean;
 };
+
+/**
+ * Whether a grant may be written, given the latest ledger action for the same
+ * person, channel and purpose. Anyone can type anyone's email into a public
+ * form, so only a verified request can undo a withdrawal.
+ */
+export function grantAllowed(latestAction: string | null | undefined, verified: boolean): boolean {
+  return verified || latestAction !== "withdraw";
+}
 
 export { CONSENT_WORDING } from "@/lib/consent-wording";
 
 /**
  * Append one consent event and keep the person's current-state columns in step:
  * email grants set contactConsentAt (if blank), email withdrawals clear it;
- * sms grants set smsConsentAt, sms withdrawals clear it.
+ * sms grants set smsConsentAt, sms withdrawals clear it. An email "updates"
+ * withdrawal also unsubscribes the address from the newsletter.
+ *
+ * An unverified grant after a withdrawal is refused: nothing is written and
+ * the result is false. Otherwise the event is written and the result is true.
  */
-export async function recordConsent(db: Db, input: ConsentInput): Promise<void> {
+export async function recordConsent(db: Db, input: ConsentInput): Promise<boolean> {
   const email = input.email.trim().toLowerCase();
+  if (input.action === "grant" && !input.verified) {
+    const [latest] = await db
+      .select({ action: consentEvents.action })
+      .from(consentEvents)
+      .where(
+        and(
+          input.personId ? eq(consentEvents.personId, input.personId) : eq(consentEvents.email, email),
+          eq(consentEvents.channel, input.channel),
+          eq(consentEvents.purpose, input.purpose),
+        ),
+      )
+      .orderBy(desc(consentEvents.createdAt))
+      .limit(1);
+    if (!grantAllowed(latest?.action, false)) return false;
+  }
   await db.insert(consentEvents).values({
     personId: input.personId ?? null,
     email,
@@ -43,7 +77,13 @@ export async function recordConsent(db: Db, input: ConsentInput): Promise<void> 
     ip: input.ip ?? null,
     userAgent: input.userAgent ?? null,
   });
-  if (!input.personId) return;
+  if (input.channel === "email" && input.purpose === "updates" && input.action === "withdraw") {
+    await db
+      .update(newsletterSubscribers)
+      .set({ status: "unsubscribed", unsubscribedAt: new Date() })
+      .where(and(eq(newsletterSubscribers.email, email), ne(newsletterSubscribers.status, "unsubscribed")));
+  }
+  if (!input.personId) return true;
   if (input.channel === "sms") {
     await db
       .update(people)
@@ -55,6 +95,7 @@ export async function recordConsent(db: Db, input: ConsentInput): Promise<void> 
     const [row] = await db.select({ at: people.contactConsentAt }).from(people).where(eq(people.id, input.personId));
     if (row && !row.at) await db.update(people).set({ contactConsentAt: new Date(), updatedAt: new Date() }).where(eq(people.id, input.personId));
   }
+  return true;
 }
 
 /** The request details worth keeping as proof, read from a route handler's request. */

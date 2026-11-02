@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { fieldError, Notice } from "@/components/admin/Notice";
+import { fieldDefault, fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { SelectField, TextField } from "@/components/forms/Field";
 import type { ActionState } from "@/lib/server/actions";
@@ -19,9 +19,9 @@ export function InviteForm({ action, roles, emailEnabled }: { action: Action; ro
       </h2>
       <Notice state={state} />
       <div className="form-row">
-        <TextField id="invite-name" name="name" label="Name" maxLength={80} required error={fieldError(state, "name")} autoComplete="off" />
-        <TextField id="invite-email" name="email" label="Email" type="email" maxLength={254} required error={fieldError(state, "email")} autoComplete="off" />
-        <SelectField id="invite-role" name="role" label="Role" defaultValue="organizer" error={fieldError(state, "role")}>
+        <TextField id="invite-name" name="name" label="Name" defaultValue={fieldDefault(state, "name")} maxLength={80} required error={fieldError(state, "name")} autoComplete="off" />
+        <TextField id="invite-email" name="email" label="Email" defaultValue={fieldDefault(state, "email")} type="email" maxLength={254} required error={fieldError(state, "email")} autoComplete="off" />
+        <SelectField id="invite-role" name="role" label="Role" defaultValue={fieldDefault(state, "role", "organizer")} error={fieldError(state, "role")}>
           {roles.map((r) => (
             <option key={r.id} value={r.id}>
               {r.label}
@@ -73,7 +73,7 @@ export function StaffControls(p: StaffControlsProps) {
       <div className="staff__controls">
         <form action={changeRole}>
           <input type="hidden" name="id" value={p.id} />
-          <SelectField id={`role-${p.id}`} name="role" label="Role" defaultValue={p.role} error={fieldError(roleState, "role")} className="field" disabled={!p.active}>
+          <SelectField id={`role-${p.id}`} name="role" label="Role" defaultValue={fieldDefault(roleState, "role", p.role)} error={fieldError(roleState, "role")} className="field" disabled={!p.active}>
             {p.roles.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.label}

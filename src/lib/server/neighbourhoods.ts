@@ -3,7 +3,7 @@ import { and, arrayContains, asc, eq, gte, inArray, isNull, sql } from "drizzle-
 import { getDb } from "@/lib/db";
 import { campaignSignatures, campaigns, eventRsvps, events, memberships, people, trackerPromises } from "@/lib/db/schema";
 import { googleCalendarUrl, icsCalendar, pacificDate, type IcsEvent } from "@/lib/ics";
-import type { Neighbourhood } from "@/lib/neighbourhoods";
+import { TOWN_CENTRE_MINIMUM, townCentreFor, type Neighbourhood } from "@/lib/neighbourhoods";
 import { spotsLeft } from "@/lib/shifts";
 import { cached, TAGS } from "./cache";
 import { queryPublicOpenings, type PublicOpening } from "./volunteer";
@@ -137,7 +137,7 @@ export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS
       .where(eq(campaigns.active, true))
       .orderBy(asc(campaigns.sortOrder), asc(campaigns.title)),
     db
-      .select({ members: sql<number>`count(*)::int` })
+      .select({ members: sql<number>`count(distinct ${memberships.personId})::int` })
       .from(memberships)
       .innerJoin(people, eq(people.id, memberships.personId))
       .where(
@@ -148,23 +148,24 @@ export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS
         ),
       ),
   ]);
-  const counts =
+  // Signers are filed under a town centre the way /stats does it: the stored
+  // town centre, else the one for their postal code; distinct addresses.
+  const fsa = sql<string | null>`upper(left(replace(${campaignSignatures.postalCode}, ' ', ''), 3))`;
+  const groups =
     activeCampaigns.length === 0
       ? []
       : await db
-          .select({ campaign: campaignSignatures.campaign, n: sql<number>`count(*)::int` })
+          .select({ campaign: campaignSignatures.campaign, neighbourhood: campaignSignatures.neighbourhood, fsa, n: sql<number>`count(distinct lower(${campaignSignatures.email}))::int` })
           .from(campaignSignatures)
           .where(
-            and(
-              eq(campaignSignatures.neighbourhood, name),
-              inArray(
-                campaignSignatures.campaign,
-                activeCampaigns.map((c) => c.slug),
-              ),
+            inArray(
+              campaignSignatures.campaign,
+              activeCampaigns.map((c) => c.slug),
             ),
           )
-          .groupBy(campaignSignatures.campaign);
-  const countBySlug = new Map(counts.map((c) => [c.campaign, c.n]));
+          .groupBy(campaignSignatures.campaign, campaignSignatures.neighbourhood, fsa);
+  const countBySlug = new Map<string, number>();
+  for (const g of groups) if (townCentreFor(g.neighbourhood, g.fsa) === name) countBySlug.set(g.campaign, (countBySlug.get(g.campaign) ?? 0) + g.n);
   return {
     events: here,
     cityWide,
@@ -175,5 +176,5 @@ export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS
   };
 });
 
-/** Below this many, a counter would single people out; the page says "be one of the first" instead. */
-export const COUNTER_MINIMUM = 5;
+/** Below this many, a counter would single people out; the page says "be one of the first" instead. The same threshold as /stats. */
+export const COUNTER_MINIMUM = TOWN_CENTRE_MINIMUM;

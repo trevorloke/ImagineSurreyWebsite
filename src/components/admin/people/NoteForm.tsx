@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { fieldError, Notice } from "@/components/admin/Notice";
+import { fieldDefault, fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import type { ActionState } from "@/lib/server/actions";
 
@@ -16,7 +16,7 @@ export function NoteForm({ id, action }: { id: string; action: Action }) {
       <input type="hidden" name="id" value={id} />
       <div className="field">
         <label htmlFor="note-body">Add a note</label>
-        <textarea id="note-body" name="body" className="input textarea" maxLength={4000} required aria-invalid={error ? true : undefined} aria-describedby={error ? "note-body-error" : undefined} />
+        <textarea id="note-body" name="body" defaultValue={fieldDefault(state, "body")} className="input textarea" maxLength={4000} required aria-invalid={error ? true : undefined} aria-describedby={error ? "note-body-error" : undefined} />
         {error && (
           <p className="field-error" id="note-body-error">
             {error}

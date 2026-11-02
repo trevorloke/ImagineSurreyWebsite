@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { after, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
-import { campaignSignatures, campaigns } from "@/lib/db/schema";
+import { campaignSignatures, campaigns, newsletterSubscribers } from "@/lib/db/schema";
 import { neighbourhoodForPostalCode, normalizePostalCode } from "@/lib/neighbourhoods";
 import { error, json, parseBody } from "@/lib/server/api";
 import { creditReferral, sourceLabel, trackingFromRequest } from "@/lib/server/attribution";
@@ -10,6 +10,7 @@ import { countSignatures } from "@/lib/server/campaigns";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
 import { subscribe } from "@/lib/server/newsletter";
+import { normalizePhone } from "@/lib/server/sms";
 import { notifySignature } from "@/lib/server/notifications";
 import { findOrCreatePerson } from "@/lib/server/people";
 import { signatureSchema } from "@/lib/validation";
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     const meta = consentMeta(req);
     if (data.updatesConsent) {
-      await recordConsent(db, {
+      const granted = await recordConsent(db, {
         personId: person.id,
         email,
         channel: "email",
@@ -63,9 +64,13 @@ export async function POST(req: NextRequest) {
         source: `petition:${slug}`,
         ...meta,
       });
-      await subscribe(db, email, `petition:${slug}`, person.id);
+      // A refused grant (the address withdrew earlier) must not re-subscribe it either, and an
+      // address that unsubscribed is only re-subscribed by its own confirmation click.
+      const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, email.toLowerCase()), columns: { status: true } });
+      if (granted && existing?.status !== "unsubscribed") await subscribe(db, email, `petition:${slug}`, person.id);
     }
-    if (data.smsConsent && (phone || person.phone)) {
+    // Texts only to a number typed into this form, never one already on file.
+    if (data.smsConsent && normalizePhone(phone)) {
       await recordConsent(db, {
         personId: person.id,
         email,

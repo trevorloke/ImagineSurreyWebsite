@@ -1,10 +1,24 @@
 import "server-only";
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { campaignSignatures, eventRsvps, memberships, newsletterSubscribers, people, personNotes, promiseFollows } from "@/lib/db/schema";
+import {
+  authTokens,
+  campaignSignatures,
+  consentEvents,
+  emailLog,
+  eventRsvps,
+  memberships,
+  newsletterSubscribers,
+  orders,
+  people,
+  personNotes,
+  promiseFollows,
+  smsLog,
+} from "@/lib/db/schema";
 import { escapeLike, PAGE_SIZE, type PeopleQuery } from "@/components/admin/people/query";
 import { pacific, PACIFIC } from "./admin-data";
 import { ensureReferralCode } from "./people";
+import { normalizePhone } from "./sms";
 
 const TZ = sql.raw(`'${PACIFIC}'`);
 // Raw query results carry timestamps as text, so the timeline's instant is
@@ -142,8 +156,16 @@ export async function bulkTag(db: Db, q: PeopleQuery, tag: string, mode: "add" |
   return Number((result as unknown as { count?: number }).count ?? 0);
 }
 
-/** The CSV of a list view: the same filter and sort, every matching row, Pacific timestamps. */
-export function supportersExportQuery(q: PeopleQuery): SQL {
+/**
+ * The CSV of a list view: the same filter and sort, every matching row,
+ * Pacific timestamps. The amount given this year is a column only for
+ * viewers with the money permission.
+ */
+export function supportersExportQuery(q: PeopleQuery, options: { money: boolean } = { money: false }): SQL {
+  const donated = options.money
+    ? sql`(select coalesce(sum(c.amount_cents - c.refunded_cents), 0) from contributions c
+              where c.person_id = p.id and c.${PAID} and c.paid_at >= ${YEAR_START})::int as donated_this_year_cents,`
+    : sql``;
   return sql`
     select p.first_name, p.last_name, p.email, p.phone, p.address, p.city, p.province, p.postal_code, p.neighbourhood,
            case when ${ACTIVE_MEMBERSHIP} then 'active' when ${PAST_MEMBERSHIP} then 'expired' when ${PENDING_MEMBERSHIP} then 'pending_payment' else '' end as membership,
@@ -152,8 +174,7 @@ export function supportersExportQuery(q: PeopleQuery): SQL {
            array_to_string(p.tags, '; ') as tags, p.source, coalesce(${NEWSLETTER_STATUS}, '') as newsletter,
            ${pacific("p.contact_consent_at")} as email_consent_at, ${pacific("p.sms_consent_at")} as sms_consent_at,
            p.interest_volunteer, p.interest_lawn_sign, array_to_string(p.languages, '; ') as languages, p.locale,
-           (select coalesce(sum(c.amount_cents - c.refunded_cents), 0) from contributions c
-              where c.person_id = p.id and c.${PAID} and c.paid_at >= ${YEAR_START})::int as donated_this_year_cents,
+           ${donated}
            p.referral_code, ${pacific("p.created_at")} as created_at
     from people p ${where(q)} ${orderBy(q)}`;
 }
@@ -190,7 +211,12 @@ export function displayName(p: { firstName: string | null; lastName: string | nu
   return personName(p);
 }
 
-export async function loadPerson(db: Db, id: string): Promise<PersonProfile | null> {
+/**
+ * One supporter's profile. Without the money permission (`money: false`) the
+ * amount given this year is 0 and the timeline leaves out contributions,
+ * monthly gifts, orders and membership fee amounts.
+ */
+export async function loadPerson(db: Db, id: string, options: { money: boolean } = { money: false }): Promise<PersonProfile | null> {
   const person = await db.query.people.findFirst({ where: eq(people.id, id) });
   if (!person) return null;
   const refCols = { id: people.id, firstName: people.firstName, lastName: people.lastName, email: people.email, createdAt: people.createdAt };
@@ -208,11 +234,14 @@ export async function loadPerson(db: Db, id: string): Promise<PersonProfile | nu
       .from(memberships)
       .where(eq(memberships.personId, id))
       .orderBy(desc(memberships.createdAt)),
-    db.execute(sql`select coalesce(sum(amount_cents - refunded_cents), 0)::int as n from contributions where person_id = ${id} and ${PAID} and paid_at >= ${YEAR_START}`),
-    ensureReferralCode(db, id),
+    options.money
+      ? db.execute(sql`select coalesce(sum(amount_cents - refunded_cents), 0)::int as n from contributions where person_id = ${id} and ${PAID} and paid_at >= ${YEAR_START}`)
+      : Promise.resolve([{ n: 0 }]),
+    // An anonymized record gets no new share code.
+    person.email.endsWith("@invalid") ? Promise.resolve(person.referralCode ?? "") : ensureReferralCode(db, id),
     person.referredById ? db.select(refCols).from(people).where(eq(people.id, person.referredById)).limit(1) : Promise.resolve([]),
     db.select(refCols).from(people).where(eq(people.referredById, id)).orderBy(desc(people.createdAt)).limit(100),
-    loadTimeline(db, person),
+    loadTimeline(db, person, options.money),
   ]);
 
   const now = Date.now();
@@ -244,8 +273,10 @@ export async function loadPerson(db: Db, id: string): Promise<PersonProfile | nu
  * Everything that happened with this supporter, from nine tables, newest
  * first. Each source contributes the same columns so one ORDER BY sorts them.
  */
-async function loadTimeline(db: Db, person: Person): Promise<TimelineEntry[]> {
+async function loadTimeline(db: Db, person: Person, money: boolean): Promise<TimelineEntry[]> {
   const id = person.id;
+  // Money rows only for viewers with the money permission.
+  const moneyRows = money ? sql`true` : sql`false`;
   const phoneDigits = person.phone ? person.phone.replace(/[^0-9]/g, "").slice(-10) : "";
   const rows = await db.execute(sql`
     select kind, to_char("at" at time zone 'UTC', ${ISO}) as "at", title, detail, status, amount_cents, refunded_cents from (
@@ -253,20 +284,20 @@ async function loadTimeline(db: Db, person: Person): Promise<TimelineEntry[]> {
              concat_ws(' · ', case when m.voting_eligible then 'voting' else 'non-voting' end,
                        case when m.expires_at is not null then 'expires ' || to_char(m.expires_at at time zone ${TZ}, 'YYYY-MM-DD') end) as detail,
              case when m.status = 'active' and m.expires_at <= now() then 'expired' else m.status::text end as status,
-             m.fee_cents as amount_cents, null::int as refunded_cents
+             case when ${moneyRows} then m.fee_cents end as amount_cents, null::int as refunded_cents
       from memberships m where m.person_id = ${id}
       union all
       select 'contribution', coalesce(c.paid_at, c.created_at),
              case when c.kind = 'membership_fee' then 'Membership fee' when c.frequency = 'monthly' then 'Monthly gift payment' else 'Donation' end,
              concat_ws(' · ', replace(c.slate::text, '_', ' ') || ' slate', nullif(replace(c.fund, '_', ' '), 'general')),
              c.status::text, c.amount_cents, nullif(c.refunded_cents, 0)
-      from contributions c where c.person_id = ${id}
+      from contributions c where c.person_id = ${id} and ${moneyRows}
       union all
       select 'recurring', r.created_at, 'Monthly gift started',
              concat_ws(' · ', (select string_agg(replace(e.key, '_', ' ') || ' $' || to_char(e.value::int / 100.0, 'FM999,999,990.00'), ', ') from jsonb_each_text(r.slate_amounts) e) || ' a month',
                        case when r.cancelled_at is not null then 'cancelled ' || to_char(r.cancelled_at at time zone ${TZ}, 'YYYY-MM-DD') end),
              r.status::text, (select sum(e.value::int) from jsonb_each_text(r.slate_amounts) e)::int, null
-      from recurring_donations r where r.person_id = ${id}
+      from recurring_donations r where r.person_id = ${id} and ${moneyRows}
       union all
       select 'signature', s.created_at, case when cp.kind = 'pledge' then 'Signed the pledge: ' else 'Signed the petition: ' end || coalesce(cp.title, s.campaign),
              concat_ws(' · ', s.answer, case when s.source is not null then 'via ' || s.source end), null, null, null
@@ -284,7 +315,7 @@ async function loadTimeline(db: Db, person: Person): Promise<TimelineEntry[]> {
       union all
       select 'order', coalesce(o.paid_at, o.created_at), 'Shop order',
              (select string_agg(i.quantity || ' × ' || i.name, ', ' order by i.name) from order_items i where i.order_id = o.id), o.status::text, o.total_cents, null
-      from orders o where o.person_id = ${id}
+      from orders o where o.person_id = ${id} and ${moneyRows}
       union all
       select 'email', coalesce(l.sent_at, l.created_at), 'Email: ' || l.subject, concat_ws(' · ', l.kind, l.error), l.status::text, null, null
       from email_log l where l.person_id = ${id} or l."to" = ${person.email}
@@ -315,12 +346,17 @@ export async function addNote(db: Db, id: string, author: { id: string; name: st
  * A PIPA deletion request. Personal details are replaced with placeholders
  * and every consent is withdrawn; contribution and recurring-gift rows keep
  * their contributor snapshot because election-financing law requires it.
+ * Everything else that holds the address, phone or what was said is scrubbed
+ * in the same transaction: the email and text logs are deleted, the consent
+ * ledger keeps only what was decided and when, orders lose the address and
+ * shipping details, and outstanding sign-in links are deleted.
  * Returns the address the record used to have, for the audit entry.
  */
 export async function anonymizePerson(db: Db, id: string): Promise<{ previousEmail: string } | null> {
-  const person = await db.query.people.findFirst({ where: eq(people.id, id), columns: { id: true, email: true } });
+  const person = await db.query.people.findFirst({ where: eq(people.id, id), columns: { id: true, email: true, phone: true } });
   if (!person) return null;
   const email = `anonymized-${id}@invalid`;
+  const phones = [person.phone, normalizePhone(person.phone)].filter((p): p is string => Boolean(p));
   await db.transaction(async (tx) => {
     await tx
       .update(people)
@@ -346,15 +382,34 @@ export async function anonymizePerson(db: Db, id: string): Promise<{ previousEma
         smsConsentAt: null,
         tags: [],
         locale: null,
+        neighbourhood: null,
+        source: null,
+        referralCode: null,
+        stripeCustomerId: null,
+        stripeCustomerMode: null,
         updatedAt: new Date(),
       })
       .where(eq(people.id, id));
     await tx.delete(personNotes).where(eq(personNotes.personId, id));
+    // The row stays, unsubscribed, so the count history holds; the address goes.
     await tx
       .update(newsletterSubscribers)
-      .set({ status: "unsubscribed", unsubscribedAt: sql`coalesce(${newsletterSubscribers.unsubscribedAt}, now())` })
-      .where(and(eq(newsletterSubscribers.email, person.email), sql`${newsletterSubscribers.status} <> 'unsubscribed'`));
-    await tx.update(campaignSignatures).set({ firstName: "Removed", lastName: "Supporter", email, address: null, phone: null }).where(eq(campaignSignatures.personId, id));
+      .set({ email, status: "unsubscribed", unsubscribedAt: sql`coalesce(${newsletterSubscribers.unsubscribedAt}, now())` })
+      .where(eq(newsletterSubscribers.email, person.email));
+    await tx.delete(emailLog).where(or(eq(emailLog.personId, id), sql`lower(${emailLog.to}) = ${person.email}`));
+    await tx.delete(smsLog).where(phones.length ? or(eq(smsLog.personId, id), inArray(smsLog.to, phones)) : eq(smsLog.personId, id));
+    // The ledger keeps what was decided and when; not the address or the device.
+    await tx
+      .update(consentEvents)
+      .set({ email, ip: null, userAgent: null })
+      .where(or(eq(consentEvents.personId, id), eq(consentEvents.email, person.email)));
+    await tx.update(orders).set({ email, shipping: null }).where(or(eq(orders.personId, id), sql`lower(${orders.email}) = ${person.email}`));
+    await tx.delete(authTokens).where(eq(authTokens.email, person.email));
+    // postal_code is required on signatures, so it becomes empty rather than null.
+    await tx
+      .update(campaignSignatures)
+      .set({ firstName: "Removed", lastName: "Supporter", email, address: null, phone: null, postalCode: "", neighbourhood: null, answer: null, source: null })
+      .where(eq(campaignSignatures.personId, id));
     await tx.update(eventRsvps).set({ name: "Removed Supporter", email }).where(eq(eventRsvps.personId, id));
     await tx.update(memberships).set({ memberName: "Removed Supporter", memberAddress: null, memberCity: null, memberPostalCode: null }).where(eq(memberships.personId, id));
     await tx.delete(promiseFollows).where(sql`${promiseFollows.personId} = ${id} or ${promiseFollows.email} = ${person.email}`);

@@ -7,7 +7,7 @@ import { TagsEditor } from "@/components/admin/people/TagsEditor";
 import { LOCALES } from "@/components/admin/people/query";
 import { getDb } from "@/lib/db";
 import { formatCents } from "@/lib/money";
-import { requireAdmin } from "@/lib/server/admin-auth";
+import { can, requireAdmin } from "@/lib/server/admin-auth";
 import { displayName, filterFacets, loadPerson, type TimelineEntry } from "@/lib/server/supporters";
 import { addNoteAction, addTagAction, anonymizeAction, removeTagAction, savePerson } from "./actions";
 import "../people.css";
@@ -49,11 +49,12 @@ function entryAmount(e: TimelineEntry): string | null {
 }
 
 export default async function PersonPage({ params }: PageProps<"/admin/people/[id]">) {
-  await requireAdmin("people");
+  const user = await requireAdmin("people");
+  const money = can(user, "money");
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const db = getDb();
-  const [profile, facets] = await Promise.all([loadPerson(db, id), filterFacets(db)]);
+  const [profile, facets] = await Promise.all([loadPerson(db, id, { money }), filterFacets(db)]);
   if (!profile) notFound();
   const { person, membership, newsletter } = profile;
   const name = displayName(person);
@@ -73,7 +74,7 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
           {membership.status === "active" && <span className="badge badge--ok">Member until {membership.expiresAt ? DAY.format(membership.expiresAt) : ""}</span>}
           {membership.status === "expired" && <span className="badge badge--bad">Membership expired</span>}
           {membership.status === "pending" && <span className="badge badge--warn">Membership pending payment</span>}
-          {profile.donatedThisYearCents > 0 && <span className="badge badge--navy">Gave {formatCents(profile.donatedThisYearCents)} this year</span>}
+          {money && profile.donatedThisYearCents > 0 && <span className="badge badge--navy">Gave {formatCents(profile.donatedThisYearCents)} this year</span>}
           {anonymized && <span className="badge badge--bad">Anonymized</span>}
         </div>
       </div>
@@ -204,7 +205,7 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
             <dl className="facts">
               <dt>Share code</dt>
               <dd>
-                <span className="secret">{profile.referralCode}</span>
+                <span className="secret">{profile.referralCode || "—"}</span>
               </dd>
               <dt>Referred by</dt>
               <dd>{profile.referredBy ? <Link href={`/admin/people/${profile.referredBy.id}`}>{profile.referredBy.name}</Link> : "—"}</dd>

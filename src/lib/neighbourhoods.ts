@@ -22,6 +22,19 @@ export function neighbourhoodForPostalCode(postal: string): string | undefined {
   return FSA_TO_NEIGHBOURHOOD[postal.toUpperCase().replace(/\s+/g, "").slice(0, 3)];
 }
 
+/**
+ * The town centre a public count files someone under: the stored town centre
+ * when it is one, else the one for their postal code, else Outside Surrey.
+ * /stats, the neighbourhood pages and the campaign pages all count this way.
+ */
+export function townCentreFor(stored: string | null | undefined, postalCode: string | null | undefined): string {
+  if (stored && ((NEIGHBOURHOODS as readonly string[]).includes(stored) || stored === OUTSIDE_SURREY)) return stored;
+  return (postalCode ? neighbourhoodForPostalCode(postalCode) : undefined) ?? OUTSIDE_SURREY;
+}
+
+/** Public counts per town centre are withheld below this, so nobody on a quiet street can be picked out. */
+export const TOWN_CENTRE_MINIMUM = 10;
+
 /** "v3t1a1" → "V3T 1A1" */
 export function normalizePostalCode(postal: string): string {
   const raw = postal.toUpperCase().replace(/\s+/g, "");

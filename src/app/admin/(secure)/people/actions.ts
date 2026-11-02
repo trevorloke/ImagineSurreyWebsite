@@ -5,6 +5,7 @@ import { z } from "zod";
 import { describeQuery, normalizeTag, parsePeopleQuery } from "@/components/admin/people/query";
 import { getDb } from "@/lib/db";
 import { ActionError, adminAction } from "@/lib/server/actions";
+import { can } from "@/lib/server/admin-auth";
 import { audit } from "@/lib/server/audit";
 import { bulkTag } from "@/lib/server/supporters";
 
@@ -23,7 +24,7 @@ export const bulkTagAction = adminAction(
   async (data, { user }) => {
     const tag = normalizeTag(data.bulkTag);
     if (!tag) throw new ActionError("Please check the highlighted fields.", { bulkTag: "Enter a tag" });
-    const query = parsePeopleQuery(data as Record<string, string | string[] | undefined>);
+    const query = parsePeopleQuery(data as Record<string, string | string[] | undefined>, { money: can(user, "money") });
     const changed = await bulkTag(getDb(), query, tag, data.mode);
     await audit(user, data.mode === "add" ? "people.tag.add" : "people.tag.remove", { tag, changed, filters: describeQuery(query) }, "people");
     revalidatePath("/admin/people");

@@ -4,8 +4,29 @@ import { fieldErrors } from "@/lib/validation";
 import { requireAdmin, type AdminUser, type Permission } from "./admin-auth";
 import { audit } from "./audit";
 
-/** What a form gets back from a server action, for React's useActionState. */
-export type ActionState = { ok: true; message?: string; redirect?: string } | { ok: false; error: string; fields?: Record<string, string> } | null;
+/** A form's submitted values, as FormData had them (repeated names are arrays). */
+export type FormValues = Record<string, string | string[]>;
+
+/**
+ * What a form gets back from a server action, for React's useActionState.
+ * React 19 resets an uncontrolled form after its action, so a failed action
+ * returns the submitted `values` and the form uses them as defaults (see
+ * fieldDefault in components/admin/Notice) instead of losing what was typed.
+ */
+export type ActionState = { ok: true; message?: string; redirect?: string; values?: FormValues } | { ok: false; error: string; fields?: Record<string, string>; values?: FormValues } | null;
+
+// Never echoed back to the browser.
+const SECRET_FIELD = /password|^confirm$|token/i;
+
+/** The submitted values worth giving back to the form: text and choices, never passwords or files. */
+export function formValues(form: FormData): FormValues {
+  const out: FormValues = {};
+  for (const [key, value] of Object.entries(formToObject(form))) {
+    if (SECRET_FIELD.test(key)) continue;
+    if (typeof value === "string" || Array.isArray(value)) out[key] = value as string | string[];
+  }
+  return out;
+}
 
 export class ActionError extends Error {
   constructor(
@@ -32,16 +53,17 @@ export function adminAction<S extends z.ZodType>(permission: Permission, schema:
   return async (_prev: ActionState, form: FormData): Promise<ActionState> => {
     const user = await requireAdmin(permission);
     const parsed = schema.safeParse(formToObject(form));
-    if (!parsed.success) return { ok: false, error: "Please check the highlighted fields.", fields: fieldErrors(parsed.error) };
+    if (!parsed.success) return { ok: false, error: "Please check the highlighted fields.", fields: fieldErrors(parsed.error), values: formValues(form) };
     try {
       const result = await handler(parsed.data, { user });
       if (auditAction) await audit(user, auditAction, parsed.data as Record<string, unknown>);
       if (typeof result === "string") return { ok: true, message: result };
+      if (result && !result.ok && !result.values) return { ...result, values: formValues(form) };
       return result ?? { ok: true };
     } catch (err) {
-      if (err instanceof ActionError) return { ok: false, error: err.message, fields: err.fields };
+      if (err instanceof ActionError) return { ok: false, error: err.message, fields: err.fields, values: formValues(form) };
       console.error(err);
-      return { ok: false, error: "Something went wrong saving that. Nothing was changed. Please try again." };
+      return { ok: false, error: "Something went wrong saving that. Nothing was changed. Please try again.", values: formValues(form) };
     }
   };
 }

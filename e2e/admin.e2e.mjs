@@ -58,6 +58,14 @@ const [event] = await sql`insert into events (slug, title, starts_at, location, 
 await sql`insert into event_rsvps (event_id, person_id, name, email, guests, source) values (${event.id}, ${mei.id}, 'Mei Chen', 'mei@crm.example', 1, 'poster') on conflict do nothing`;
 await sql`insert into email_log ("to", person_id, kind, subject, status, error, attempts) values ('asha@crm.example', ${asha.id}, 'test', 'A test email', 'failed', 'boom', 1)`;
 await sql`insert into person_notes (person_id, author_name, body) values (${pat.id}, 'Someone', 'Called about the lawn sign.')`;
+// Everything else that holds Pat's address, phone or words, for the anonymize checks.
+await sql`update people set source = 'poster', referral_code = 'PATDOE26', stripe_customer_id = 'cus_pat', locale = 'en', neighbourhood = 'Newton' where id = ${pat.id}`;
+await sql`insert into email_log ("to", person_id, kind, subject, html, text, status) values ('pat@crm.example', ${pat.id}, 'receipt', 'Your receipt, Pat', '<p>Hi Pat</p>', 'Hi Pat', 'sent'), ('pat@crm.example', null, 'newsletter', 'News', '<p>Hi</p>', 'Hi', 'sent')`;
+await sql`insert into sms_log ("to", person_id, kind, body, status) values ('+16045550123', ${pat.id}, 'reminder', 'Hi Pat, see you Saturday', 'sent'), ('+16045550123', null, 'reminder', 'Hi again', 'sent')`;
+await sql`insert into consent_events (person_id, email, channel, purpose, action, ip, user_agent, source) values (${pat.id}, 'pat@crm.example', 'email', 'updates', 'grant', '203.0.113.9', 'Pat browser', 'petition:x')`;
+await sql`insert into orders (person_id, email, status, total_cents, shipping) values (${pat.id}, 'pat@crm.example', 'paid', 2500, ${sql.json({ name: "Pat Doe", line1: "1 Main St" })})`;
+await sql`insert into auth_tokens (purpose, email, token_hash, expires_at) values ('member-login', 'pat@crm.example', ${"pat-hash-" + pat.id}, now() + interval '30 minutes')`;
+await sql`update campaign_signatures set answer = 'Because of the traffic on my street', neighbourhood = 'Newton' where person_id = ${pat.id}`;
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 let dash = await page$("/admin");
@@ -181,6 +189,15 @@ await page.click('button:has-text("Save details")');
 await page.locator('[role="status"]', { hasText: "Details saved" }).waitFor();
 const edited = (await sql`select phone, issue, first_name from people where id = ${asha.id}`)[0];
 ok(edited.phone === "604-555-0100" && edited.issue === "SkyTrain" && edited.first_name === "Asha", "edit form updates the record through updatePerson");
+ok(/Gave \$[\d,.]+ this year/.test(body), "the owner (money permission) sees what the supporter gave this year");
+
+// A failed save keeps what was typed (React resets the form after an action).
+await page.fill("#postalCode", "nope");
+await page.fill("#issue", "Typed but not saved");
+await page.click('button:has-text("Save details")');
+await page.locator('[role="alert"]', { hasText: "highlighted fields" }).waitFor();
+ok((await page.inputValue("#postalCode")) === "nope" && (await page.inputValue("#issue")) === "Typed but not saved" && (await page.inputValue("#phone")) === "604-555-0100", "a validation error keeps the typed values in the form");
+ok((await sql`select issue from people where id = ${asha.id}`)[0].issue === "SkyTrain", "…and saves nothing");
 
 await page.goto(`${BASE}/admin/people/${pat.id}`);
 await page.locator('input[name="confirm"]').check();
@@ -190,7 +207,19 @@ ok((await page.locator(".badge", { hasText: "Anonymized" }).count()) === 1 && (a
 const anon = (await sql`select email, first_name, last_name, phone, address, tags, contact_consent_at from people where id = ${pat.id}`)[0];
 ok(anon.email === `anonymized-${pat.id}@invalid` && anon.first_name === "Removed" && anon.phone === null && anon.address === null && anon.tags.length === 0 && anon.contact_consent_at === null, "anonymize replaces personal details and clears consents and tags");
 ok((await sql`select count(*)::int c from person_notes where person_id = ${pat.id}`)[0].c === 0, "anonymize deletes notes");
-ok((await sql`select status from newsletter_subscribers where email = 'pat@crm.example'`)[0]?.status === "unsubscribed", "anonymize unsubscribes the newsletter row");
+const sub = (await sql`select email, status from newsletter_subscribers where person_id = ${pat.id}`)[0];
+ok(sub?.status === "unsubscribed" && sub.email === `anonymized-${pat.id}@invalid`, "anonymize keeps the newsletter row unsubscribed, without the address");
+ok((await sql`select count(*)::int c from email_log where person_id = ${pat.id} or "to" = 'pat@crm.example'`)[0].c === 0, "anonymize deletes the email log rows");
+ok((await sql`select count(*)::int c from sms_log where person_id = ${pat.id} or "to" = '+16045550123'`)[0].c === 0, "anonymize deletes the text log rows");
+const ledger = await sql`select email, ip, user_agent, action, purpose from consent_events where person_id = ${pat.id}`;
+ok(ledger.length >= 1 && ledger.every((c) => c.email === `anonymized-${pat.id}@invalid` && c.ip === null && c.user_agent === null && c.action && c.purpose), "the consent ledger keeps what was decided, not the address or device");
+const order = (await sql`select email, shipping from orders where person_id = ${pat.id}`)[0];
+ok(order?.email === `anonymized-${pat.id}@invalid` && order.shipping === null, "orders lose the address and shipping details");
+ok((await sql`select count(*)::int c from auth_tokens where email = 'pat@crm.example'`)[0].c === 0, "outstanding sign-in links are deleted");
+const sig = (await sql`select postal_code, neighbourhood, answer, source from campaign_signatures where person_id = ${pat.id}`)[0];
+ok(sig.postal_code === "" && sig.neighbourhood === null && sig.answer === null && sig.source === null, "signature rows lose the postal code, town centre, answer and source");
+const anonExtra = (await sql`select neighbourhood, source, referral_code, stripe_customer_id, locale from people where id = ${pat.id}`)[0];
+ok(Object.values(anonExtra).every((v) => v === null), "the person row loses neighbourhood, source, referral code, Stripe id and locale");
 const kept = (await sql`select contributor_name, amount_cents from contributions where person_id = ${pat.id}`)[0];
 ok(kept?.contributor_name === "Pat Doe" && kept.amount_cents === 2500, "contribution rows and their contributor snapshot are kept");
 ok((await sql`select first_name, email from campaign_signatures where person_id = ${pat.id}`)[0].first_name === "Removed", "signature rows no longer carry the name");
@@ -223,6 +252,21 @@ ok(denied.headers.get("location")?.includes("denied=users"), "an organizer is tu
 denied = await fetch(BASE + "/api/admin/export/contributions", { headers: { cookie: nadiaCookie } });
 ok(denied.status === 403, "an organizer can't export money datasets");
 ok((await fetch(BASE + "/api/admin/export/people?tag=bulk", { headers: { cookie: nadiaCookie } })).status === 200, "but can export supporters");
+
+// Money data needs the money permission, on the list, the CSV and the profile.
+const asNadia = async (path) => (await (await fetch(BASE + path, { headers: { cookie: nadiaCookie } })).text()).replace(/<!--.*?-->/g, "");
+// Raj gave nothing, so a working donor filter hides him.
+let nadiaPage = await asNadia("/admin/people?donated=1&q=raj%40crm.example");
+ok(nadiaPage.includes("Raj Patel") && !nadiaPage.includes('name="donated"'), "an organizer can't filter by donors, even through the URL, and has no donor checkbox");
+const ownerList = await page$("/admin/people?donated=1&q=raj%40crm.example");
+const ownerAsha = await page$("/admin/people?donated=1&q=asha%40crm.example");
+ok(!tableBody(ownerList.text).includes("Raj Patel") && ownerAsha.text.includes("Asha Singh") && ownerList.text.includes('name="donated"'), "the owner can filter by donors");
+const nadiaCsv = await (await fetch(BASE + "/api/admin/export/people?donated=1&q=crm.example", { headers: { cookie: nadiaCookie } })).text();
+ok(!nadiaCsv.split("\r\n")[0].includes("donated_this_year_cents") && nadiaCsv.includes("raj@crm.example"), "an organizer's CSV has no amount column and ignores the donor filter");
+const ownerCsv = await (await fetch(BASE + "/api/admin/export/people?q=crm.example", { headers: { cookie } })).text();
+ok(ownerCsv.split("\r\n")[0].includes("donated_this_year_cents"), "the owner's CSV has the amount column");
+nadiaPage = await asNadia(`/admin/people/${asha.id}`);
+ok(nadiaPage.includes("Asha Singh") && !nadiaPage.includes("Gave ") && !nadiaPage.includes("Donation") && !nadiaPage.includes("Membership fee") && !nadiaPage.includes("$50"), "an organizer's profile view has no amounts, donations or fees");
 
 const staffRow = page.locator(".staff", { hasText: "nadia@crm.example" });
 await staffRow.locator("select[name=role]").selectOption("editor");

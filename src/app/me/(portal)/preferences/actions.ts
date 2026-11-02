@@ -1,5 +1,6 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { CONSENT_WORDING } from "@/lib/consent-wording";
@@ -23,7 +24,9 @@ const schema = z.object({
 /**
  * Save the supporter's own details. A changed tick box is a consent event:
  * the ledger gets the exact wording shown, and the person's current-state
- * columns follow from it (recordConsent does both).
+ * columns follow from it (recordConsent does both). A signed-in member has
+ * proved control of the address, so the grant is verified. The action gives
+ * the submitted values back and the form shows them after React resets it.
  */
 const save = memberAction("/me/preferences", schema, async (data, { person, meta }) => {
   const db = getDb();
@@ -33,7 +36,7 @@ const save = memberAction("/me/preferences", schema, async (data, { person, meta
   const postalCode = data.postalCode ? normalizePostalCode(data.postalCode) : null;
   const neighbourhood = postalCode ? (neighbourhoodForPostalCode(postalCode) ?? OUTSIDE_SURREY) : undefined;
 
-  const common = { personId: person.id, email: person.email, source: "preferences", ip: meta.ip, userAgent: meta.userAgent } as const;
+  const common = { personId: person.id, email: person.email, source: "preferences", ip: meta.ip, userAgent: meta.userAgent, verified: true } as const;
   if (data.updates !== Boolean(person.contactConsentAt)) {
     await recordConsent(db, { ...common, channel: "email", purpose: "updates", action: data.updates ? "grant" : "withdraw", wording: CONSENT_WORDING.updates });
   }
@@ -48,6 +51,8 @@ const save = memberAction("/me/preferences", schema, async (data, { person, meta
     ...(neighbourhood !== undefined ? { neighbourhood } : {}),
     locale: data.locale,
   });
+  // Re-render the page with the saved record, so nothing on it is stale.
+  refresh();
   return neighbourhood ? `Saved. Your town centre: ${neighbourhood}.` : "Saved.";
 });
 

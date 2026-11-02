@@ -17,12 +17,21 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/admin/shifts/[
   const parsed = updateShiftSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Invalid change.", 422);
   if (Object.keys(parsed.data).length === 0) return error("Nothing to change.", 422);
+  const db = getDb();
+  const current = await db.query.shifts.findFirst({ where: eq(shifts.id, id.data), columns: { date: true, slot: true, openingId: true } });
+  if (!current) return error("That shift no longer exists.", 404);
+  // A shift moved to another day or time is no longer on its opening, so it frees that opening's spot.
+  const moved = (parsed.data.date !== undefined && parsed.data.date !== current.date) || (parsed.data.slot !== undefined && parsed.data.slot !== current.slot);
   try {
-    const [row] = await getDb().update(shifts).set(parsed.data).where(eq(shifts.id, id.data)).returning(boardShiftColumns);
+    const [row] = await db
+      .update(shifts)
+      .set({ ...parsed.data, ...(moved ? { openingId: null } : {}) })
+      .where(eq(shifts.id, id.data))
+      .returning(boardShiftColumns);
     if (!row) return error("That shift no longer exists.", 404);
     if (parsed.data.status) await audit(auth.user, "shift.status", { status: parsed.data.status }, "shifts", row.id);
     // Sign-ups through an opening count toward its spots left on the public site.
-    if (row.openingId) invalidate(TAGS.counters);
+    if (row.openingId || current.openingId) invalidate(TAGS.counters);
     return json(row);
   } catch (err) {
     if (isUniqueViolation(err)) return error("They're already on that shift.", 409);

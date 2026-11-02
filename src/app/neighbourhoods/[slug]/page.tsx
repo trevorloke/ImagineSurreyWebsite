@@ -37,7 +37,7 @@ export default async function NeighbourhoodPage({ params }: PageProps<"/neighbou
   if (!name) notFound();
   const slug = neighbourhoodSlug(name)!;
   const [{ committees }, data] = await Promise.all([getSettings(), neighbourhoodPage(name, todayInSurrey())]);
-  const joinHref = `/#join?neighbourhood=${encodeURIComponent(name)}`;
+  const joinHref = `/?neighbourhood=${encodeURIComponent(name)}#join`;
   const url = `${env.siteUrl}/neighbourhoods/${slug}`;
   const links = shareLinks({
     url,

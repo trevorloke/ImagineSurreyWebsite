@@ -78,16 +78,20 @@ describe("spots and weeks", () => {
 });
 
 describe("sign-up and opening schemas", () => {
-  const signup = { openingId: "5b1d3a0e-0f4c-4d3b-9c3a-1f2e3d4c5b6a", name: "Priya Sandhu", email: "Priya@Example.com", postalCode: "v3w 2a1", consent: true, website: "" };
+  const signup = { openingId: "5b1d3a0e-0f4c-4d3b-9c3a-1f2e3d4c5b6a", name: "Priya Sandhu", email: "Priya@Example.com", postalCode: "v3w 2a1", website: "" };
   it("accepts a sign-up, lowercases the email and drops blanks", () => {
     const r = volunteerSignupSchema.parse({ ...signup, phone: "", source: "", ref: "" });
     expect(r.email).toBe("priya@example.com");
     expect(r.phone).toBeUndefined();
     expect(r.source).toBeUndefined();
     expect(r.smsConsent).toBe(false);
+    expect(r.updatesConsent).toBe(false);
   });
-  it("needs the consent tick, a phone for texts, and nothing extra", () => {
-    expect(volunteerSignupSchema.safeParse({ ...signup, consent: false }).success).toBe(false);
+  it("books without any marketing tick, needs a phone for texts, and nothing extra", () => {
+    expect(volunteerSignupSchema.safeParse(signup).success).toBe(true);
+    expect(volunteerSignupSchema.parse({ ...signup, updatesConsent: true }).updatesConsent).toBe(true);
+    // The old required tick is gone; sending it is an unknown field.
+    expect(volunteerSignupSchema.safeParse({ ...signup, consent: true }).success).toBe(false);
     const sms = volunteerSignupSchema.safeParse({ ...signup, smsConsent: true });
     expect(sms.success).toBe(false);
     expect(volunteerSignupSchema.safeParse({ ...signup, smsConsent: true, phone: "604-555-0101" }).success).toBe(true);
