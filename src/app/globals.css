@@ -1592,6 +1592,12 @@ a.product:hover {
 .page-head {
   padding: 64px 24px 56px;
 }
+/* Long single words ("Neighbourhoods") must fit a 360px phone. */
+.page-head .display {
+  font-size: clamp(30px, 6vw, 76px);
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
 .prose {
   max-width: 720px;
   font-size: 18px;
