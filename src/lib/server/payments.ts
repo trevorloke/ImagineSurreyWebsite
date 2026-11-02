@@ -15,6 +15,7 @@ import { findOrCreatePerson, type Person } from "./people";
 import { subscribe } from "./newsletter";
 import { trackingFromRequest, type Tracking } from "./attribution";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "./consent";
+import { normalizePhone } from "./sms";
 
 export { contributionRoom, contributionTotals, UserFacingError } from "./limits";
 export { addYear } from "@/lib/contributions";
@@ -64,7 +65,8 @@ async function recordFormConsent(
 ) {
   const meta = ctx.meta ?? { ip: null, userAgent: null };
   if (consent.email) {
-    await recordConsent(db, {
+    // A public form cannot undo an earlier withdrawal: subscribe only when the grant was recorded.
+    const granted = await recordConsent(db, {
       personId: person.id,
       email: person.email,
       channel: "email",
@@ -74,9 +76,9 @@ async function recordFormConsent(
       source: consent.source,
       ...meta,
     });
-    await subscribe(db, person.email, consent.email.subscribeAs, person.id);
+    if (granted) await subscribe(db, person.email, consent.email.subscribeAs, person.id);
   }
-  if (consent.sms && consent.sms.phone?.trim()) {
+  if (consent.sms && consent.sms.phone?.trim() && normalizePhone(consent.sms.phone)) {
     await recordConsent(db, {
       personId: person.id,
       email: person.email,

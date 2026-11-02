@@ -42,8 +42,8 @@ export { CONSENT_WORDING } from "@/lib/consent-wording";
 /**
  * Append one consent event and keep the person's current-state columns in step:
  * email grants set contactConsentAt (if blank), email withdrawals clear it;
- * sms grants set smsConsentAt, sms withdrawals clear it. An email "updates"
- * withdrawal also unsubscribes the address from the newsletter.
+ * sms grants set smsConsentAt, sms withdrawals clear it. An email "updates" or
+ * "newsletter" withdrawal also unsubscribes the address from the newsletter.
  *
  * An unverified grant after a withdrawal is refused: nothing is written and
  * the result is false. Otherwise the event is written and the result is true.
@@ -58,7 +58,9 @@ export async function recordConsent(db: Db, input: ConsentInput): Promise<boolea
         and(
           input.personId ? eq(consentEvents.personId, input.personId) : eq(consentEvents.email, email),
           eq(consentEvents.channel, input.channel),
-          eq(consentEvents.purpose, input.purpose),
+          // Email purposes (news, newsletter, fundraising, volunteer asks) are all
+          // marketing mail: a withdrawal of any of them blocks an unverified re-grant.
+          input.channel === "email" ? undefined : eq(consentEvents.purpose, input.purpose),
         ),
       )
       .orderBy(desc(consentEvents.createdAt))
@@ -77,7 +79,7 @@ export async function recordConsent(db: Db, input: ConsentInput): Promise<boolea
     ip: input.ip ?? null,
     userAgent: input.userAgent ?? null,
   });
-  if (input.channel === "email" && input.purpose === "updates" && input.action === "withdraw") {
+  if (input.channel === "email" && (input.purpose === "updates" || input.purpose === "newsletter") && input.action === "withdraw") {
     await db
       .update(newsletterSubscribers)
       .set({ status: "unsubscribed", unsubscribedAt: new Date() })
