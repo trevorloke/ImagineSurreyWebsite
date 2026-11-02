@@ -80,6 +80,15 @@ async function waitFor(url, ms = 60_000) {
 await waitFor(`http://localhost:${stripePort}/__log`);
 await waitFor(`http://localhost:${port}/`);
 
+async function refreshPublicPages() {
+  const login = await fetch(`http://localhost:${port}/api/admin/login`, { method: "POST", body: new URLSearchParams({ email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD }), redirect: "manual" });
+  const cookie = login.headers.get("set-cookie")?.split(";")[0];
+  const res = cookie ? await fetch(`http://localhost:${port}/api/admin/revalidate`, { method: "POST", headers: { cookie } }) : null;
+  if (!res?.ok) console.error(`Could not refresh cached pages before the suite (${res?.status ?? login.status})`);
+  // Sign-in left a staff session and an audit row; the suite starts clean.
+  await resetSql`delete from admin_users`;
+}
+
 let failed = 0;
 const resetSql = postgres(dbUrl, { max: 1, onnotice: () => {} });
 for (const suite of suites) {
@@ -90,6 +99,9 @@ for (const suite of suites) {
   // ADMIN_EMAIL + ADMIN_PASSWORD when no staff account exists.)
   await resetSql`delete from login_attempts`;
   await resetSql`delete from admin_users`;
+  // Suites write straight to the database; refresh the public pages' cached
+  // data so each suite sees what is really there.
+  await refreshPublicPages();
   const r = spawnSync("node", [`e2e/${suite}.e2e.mjs`], { cwd: root, env, stdio: "inherit" });
   if (r.status !== 0) failed += 1;
 }
