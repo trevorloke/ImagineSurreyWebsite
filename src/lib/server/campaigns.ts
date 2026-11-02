@@ -1,9 +1,10 @@
 import "server-only";
-import { and, asc, countDistinct, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, countDistinct, desc, eq, sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { nextMilestone } from "@/app/act/milestone";
 import { getDb } from "@/lib/db";
 import { campaignSignatures, campaigns } from "@/lib/db/schema";
+import { NEIGHBOURHOODS, TOWN_CENTRE_MINIMUM, townCentreFor } from "@/lib/neighbourhoods";
 import { cached, TAGS } from "./cache";
 
 // Petitions and pledges come from the `campaigns` table, so organizers launch
@@ -29,13 +30,38 @@ export type CampaignCounts = {
   goal: number | null;
   /** The number to aim for next: the goal, then every 500 beyond it. */
   milestone: number;
-  /** Town centres with at least 10 signatures, largest first. */
+  /** Town centres with at least 10 signers, largest first. */
   byNeighbourhood: { neighbourhood: string; count: number }[];
-  /** The town centres of the latest five signatures, no names. */
+  /** The town centres of the latest five signatures, no names, and only town centres that themselves have at least 10 signers. */
   latestNeighbourhoods: string[];
 };
 
-const NEIGHBOURHOOD_MIN = 10;
+/**
+ * Per-town-centre counts from (stored town centre, postal-code prefix, signers)
+ * groups, filed the way /stats files them. Only Surrey town centres with at
+ * least TOWN_CENTRE_MINIMUM signers are shown, largest first.
+ */
+export function townCentreCounts(groups: { neighbourhood: string | null; fsa: string | null; n: number }[]): { neighbourhood: string; count: number }[] {
+  const totals = new Map<string, number>();
+  for (const g of groups) {
+    const town = townCentreFor(g.neighbourhood, g.fsa);
+    totals.set(town, (totals.get(town) ?? 0) + g.n);
+  }
+  return [...totals]
+    .filter(([town, n]) => (NEIGHBOURHOODS as readonly string[]).includes(town) && n >= TOWN_CENTRE_MINIMUM)
+    .map(([neighbourhood, count]) => ({ neighbourhood, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** The latest signatures' town centres, in order, without repeats, limited to town centres already shown. */
+export function latestTownCentres(latest: { neighbourhood: string | null; postalCode: string | null }[], shown: Set<string>): string[] {
+  const out: string[] = [];
+  for (const row of latest) {
+    const town = townCentreFor(row.neighbourhood, row.postalCode);
+    if (shown.has(town) && !out.includes(town)) out.push(town);
+  }
+  return out;
+}
 
 async function loadCounts(slug: string): Promise<CampaignCounts> {
   const db = getDb();
@@ -44,29 +70,28 @@ async function loadCounts(slug: string): Promise<CampaignCounts> {
   const [total] = await db.select({ count: signed }).from(campaignSignatures).where(eq(campaignSignatures.campaign, slug));
   const count = Number(total?.count ?? 0);
 
-  const byNeighbourhood = await db
-    .select({ neighbourhood: campaignSignatures.neighbourhood, count: signed })
+  const fsa = sql<string | null>`upper(left(replace(${campaignSignatures.postalCode}, ' ', ''), 3))`;
+  const groups = await db
+    .select({ neighbourhood: campaignSignatures.neighbourhood, fsa, n: sql<number>`count(distinct lower(${campaignSignatures.email}))::int` })
     .from(campaignSignatures)
-    .where(and(eq(campaignSignatures.campaign, slug), isNotNull(campaignSignatures.neighbourhood)))
-    .groupBy(campaignSignatures.neighbourhood)
-    .having(gte(signed, NEIGHBOURHOOD_MIN))
-    .orderBy(desc(signed));
+    .where(eq(campaignSignatures.campaign, slug))
+    .groupBy(campaignSignatures.neighbourhood, fsa);
+  const byNeighbourhood = townCentreCounts(groups);
 
   const latest = await db
-    .select({ neighbourhood: campaignSignatures.neighbourhood })
+    .select({ neighbourhood: campaignSignatures.neighbourhood, postalCode: campaignSignatures.postalCode })
     .from(campaignSignatures)
     .where(eq(campaignSignatures.campaign, slug))
     .orderBy(desc(campaignSignatures.createdAt))
     .limit(5);
-  const latestNeighbourhoods: string[] = [];
-  for (const row of latest) if (row.neighbourhood && !latestNeighbourhoods.includes(row.neighbourhood)) latestNeighbourhoods.push(row.neighbourhood);
+  const latestNeighbourhoods = latestTownCentres(latest, new Set(byNeighbourhood.map((r) => r.neighbourhood)));
 
   const goal = campaign?.goal ?? null;
   return {
     count,
     goal,
     milestone: nextMilestone(count, goal),
-    byNeighbourhood: byNeighbourhood.map((r) => ({ neighbourhood: r.neighbourhood as string, count: Number(r.count) })),
+    byNeighbourhood,
     latestNeighbourhoods,
   };
 }

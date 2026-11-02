@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { getDb } from "@/lib/db";
 import { CAMPAIGN_SLUGS, nextMilestone, pacificWeek } from "@/lib/engagement";
-import { NEIGHBOURHOODS, neighbourhoodForPostalCode, OUTSIDE_SURREY } from "@/lib/neighbourhoods";
+import { NEIGHBOURHOODS, OUTSIDE_SURREY, TOWN_CENTRE_MINIMUM, townCentreFor } from "@/lib/neighbourhoods";
 import { todayInSurrey } from "@/lib/shifts";
 import { TAGS } from "./cache";
 
@@ -13,7 +13,7 @@ import { TAGS } from "./cache";
 // signer on a quiet street can't be picked out.
 
 export const STATS_REVALIDATE_SECONDS = 300;
-export const TOWN_CENTRE_MINIMUM = 10;
+export { TOWN_CENTRE_MINIMUM };
 export const TOWN_CENTRES = [...NEIGHBOURHOODS, OUTSIDE_SURREY] as const;
 
 export type TownCentreCount = number | { suppressed: true };
@@ -96,7 +96,7 @@ async function computeStats(): Promise<PublicStats> {
     const raw: Record<string, number> = {};
     for (const row of towns) {
       if (row.campaign !== c.slug) continue;
-      const town = (row.neighbourhood && (TOWN_CENTRES as readonly string[]).includes(row.neighbourhood) ? row.neighbourhood : null) ?? (row.fsa ? neighbourhoodForPostalCode(row.fsa) : undefined) ?? OUTSIDE_SURREY;
+      const town = townCentreFor(row.neighbourhood, row.fsa);
       raw[town] = (raw[town] ?? 0) + row.n;
     }
     const byTownCentre: Record<string, TownCentreCount> = {};

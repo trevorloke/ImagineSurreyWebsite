@@ -119,7 +119,7 @@ const countRes = await fetch(BASE + `/api/campaigns/${SLUG}/count`);
 const counts = await countRes.json();
 ok(countRes.status === 200 && counts.count === (await count()) && counts.milestone === 2500 && counts.goal === 2500, `count endpoint matches SQL (${counts.count})`);
 ok((countRes.headers.get("cache-control") ?? "").includes("max-age=60"), "count endpoint is cacheable for a minute");
-ok(Array.isArray(counts.byNeighbourhood) && counts.byNeighbourhood.length === 0 && counts.latestNeighbourhoods[0] === "Newton", "neighbourhood counts hide groups under 10 and show the latest town centres");
+ok(Array.isArray(counts.byNeighbourhood) && counts.byNeighbourhood.length === 0 && Array.isArray(counts.latestNeighbourhoods) && counts.latestNeighbourhoods.length === 0, "town centres under 10 signers are hidden, in the counts and in the latest signers list");
 ok((await fetch(BASE + "/api/campaigns/no-such/count")).status === 404, "count for unknown campaign → 404");
 await go(page, BASE + `/act/${SLUG}/print`);
 ok((await page.locator(".sheet-row").count()) === 12, "print sheet has 12 signature rows");
