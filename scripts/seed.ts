@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { campaigns, products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { seedCampaigns } from "../src/content/campaigns-seed";
 import { seedAnnouncements, seedPromises, seedTests } from "../src/content/tracker-seed";
 import { DEFAULT_TASKS } from "../src/lib/shifts";
 
@@ -40,5 +41,7 @@ await db
   )
   .onConflictDoNothing({ target: trackerPromises.number });
 await db.insert(trackerAnnouncements).values(seedAnnouncements).onConflictDoNothing();
+// The pledge and petition the home page is built around.
+await db.insert(campaigns).values(seedCampaigns).onConflictDoNothing({ target: campaigns.slug });
 await client.end();
-console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, and ${seedPromises.length} tracked promises.`);
+console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, ${seedPromises.length} tracked promises and ${seedCampaigns.length} campaigns.`);

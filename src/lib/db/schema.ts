@@ -53,6 +53,8 @@ export const people = pgTable(
     // Where this person first came from: membership, donation, petition:…, event:…
     source: text("source"),
     tags: text("tags").array().notNull().default([]),
+    // Preferred language for emails and texts (en, pa, hi, zh-Hans, zh-Hant, tl).
+    locale: text("locale"),
     // Relational organizing: the share code this person hands out, and who brought them in.
     referralCode: text("referral_code"),
     referredById: uuid("referred_by_id").references((): AnyPgColumn => people.id, { onDelete: "set null" }),
@@ -225,9 +227,43 @@ export const campaignSignatures = pgTable(
     address: text("address"),
     phone: text("phone"),
     answer: text("answer"),
+    // Town centre derived from the postal code, for counters by neighbourhood.
+    neighbourhood: text("neighbourhood"),
+    source: text("source"),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("signatures_campaign_email_idx").on(t.campaign, t.email)],
+  (t) => [uniqueIndex("signatures_campaign_email_idx").on(t.campaign, t.email), index("signatures_campaign_idx").on(t.campaign, t.createdAt)],
+).enableRLS();
+
+// Petitions and pledges are defined here, so organizers can launch a new one
+// from the admin. `slug` is what campaign_signatures.campaign stores.
+export const campaignKind = pgEnum("campaign_kind", ["petition", "pledge"]);
+
+export const campaigns = pgTable(
+  "campaigns",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    kind: campaignKind("kind").notNull(),
+    title: text("title").notNull(),
+    // Shown above the form; the pledge wording or the petition ask. Markdown.
+    body: text("body").notNull().default(""),
+    // The text people are asked to sign.
+    statement: text("statement").notNull().default(""),
+    goal: integer("goal"),
+    // The optional free-text question on the form, e.g. "Where should the line end?"
+    question: text("question"),
+    shareText: text("share_text").notNull().default(""),
+    // Who the "email council" action goes to, when set.
+    targetEmails: text("target_emails").array().notNull().default([]),
+    imageUrl: text("image_url"),
+    active: boolean("active").notNull().default(true),
+    // Seeded campaigns are wired into the home page; others get their own page at /act/<slug>.
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("campaigns_slug_idx").on(t.slug)],
 ).enableRLS();
 
 // ── News and events ───────────────────────────────────────────────────────
@@ -265,6 +301,8 @@ export const events = pgTable(
     description: text("description").notNull().default(""),
     imageUrl: text("image_url"),
     capacity: integer("capacity"),
+    // Which town centre it is in, for "near you" pages; null for city-wide.
+    neighbourhood: text("neighbourhood"),
     published: boolean("published").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: createdAt(),
@@ -285,6 +323,10 @@ export const eventRsvps = pgTable(
     name: text("name").notNull(),
     email: text("email").notNull(),
     guests: integer("guests").notNull().default(0),
+    // Where the sign-up came from (?source=, a referral, an email campaign).
+    source: text("source"),
+    checkedInAt: timestamp("checked_in_at", { withTimezone: true }),
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("rsvps_event_email_idx").on(t.eventId, t.email)],
@@ -365,6 +407,27 @@ export const volunteerTasks = pgTable(
 ).enableRLS();
 
 export const shiftSlot = pgEnum("shift_slot", ["morning", "afternoon", "evening"]);
+export const shiftStatus = pgEnum("shift_status", ["scheduled", "confirmed", "attended", "no_show", "cancelled"]);
+
+// A published slot volunteers can sign themselves up for: "Door-knocking in
+// Newton, Saturday morning, 6 spots".
+export const shiftOpenings = pgTable(
+  "shift_openings",
+  {
+    id: id(),
+    date: date("date").notNull(),
+    slot: shiftSlot("slot").notNull(),
+    taskId: uuid("task_id").references(() => volunteerTasks.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    location: text("location").notNull().default(""),
+    neighbourhood: text("neighbourhood"),
+    capacity: integer("capacity").notNull().default(6),
+    notes: text("notes").notNull().default(""),
+    published: boolean("published").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("shift_openings_date_idx").on(t.date)],
+).enableRLS();
 
 export const shifts = pgTable(
   "shifts",
@@ -377,9 +440,13 @@ export const shifts = pgTable(
     slot: shiftSlot("slot").notNull(),
     // Deleting a task leaves its shifts in place, uncoloured.
     taskId: uuid("task_id").references(() => volunteerTasks.id, { onDelete: "set null" }),
+    // Set when the volunteer signed up through a public opening.
+    openingId: uuid("opening_id").references(() => shiftOpenings.id, { onDelete: "set null" }),
+    status: shiftStatus("status").notNull().default("scheduled"),
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("shifts_person_slot_idx").on(t.personId, t.date, t.slot), index("shifts_date_idx").on(t.date)],
+  (t) => [uniqueIndex("shifts_person_slot_idx").on(t.personId, t.date, t.slot), index("shifts_date_idx").on(t.date), index("shifts_opening_idx").on(t.openingId)],
 ).enableRLS();
 
 // ── Promise tracker ───────────────────────────────────────────────────────
@@ -403,10 +470,33 @@ export const trackerPromises = pgTable(
     testPartly: text("test_partly"),
     testBroken: text("test_broken"),
     testRecord: text("test_record"),
+    // When the promise was made and when the party said it would be done.
+    promisedOn: date("promised_on"),
+    targetDate: date("target_date"),
+    // Town centres the promise affects, for neighbourhood pages.
+    neighbourhoods: text("neighbourhoods").array().notNull().default([]),
     statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("tracker_promises_number_idx").on(t.number)],
+).enableRLS();
+
+// People who asked to be told when a promise's status changes.
+export const promiseFollows = pgTable(
+  "promise_follows",
+  {
+    id: id(),
+    promiseId: uuid("promise_id")
+      .notNull()
+      .references(() => trackerPromises.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    // Unsubscribe link token.
+    token: text("token").notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("promise_follows_promise_email_idx").on(t.promiseId, t.email), uniqueIndex("promise_follows_token_idx").on(t.token)],
 ).enableRLS();
 
 // The record behind each score: what happened, when, and where to check it.
