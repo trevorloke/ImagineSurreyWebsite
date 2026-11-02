@@ -26,7 +26,7 @@ import { env } from "@/lib/env";
 import { googleCalendarUrl, pacificDate, SLOT_HOURS, type IcsEvent } from "@/lib/ics";
 import { todayInSurrey } from "@/lib/shifts";
 import { fieldErrors } from "@/lib/validation";
-import { ActionError, formToObject, type ActionState } from "./actions";
+import { ActionError, formToObject, formValues, type ActionState } from "./actions";
 import { consentHistory } from "./consent";
 import { sendEmail } from "./email";
 import { requireMember } from "./member-auth";
@@ -62,15 +62,16 @@ export function memberAction<S extends z.ZodType>(nextPath: string, schema: S, h
   return async (_prev: ActionState, form: FormData): Promise<ActionState> => {
     const person = await requireMember(nextPath);
     const parsed = schema.safeParse(formToObject(form));
-    if (!parsed.success) return { ok: false, error: "Please check the highlighted fields.", fields: fieldErrors(parsed.error) };
+    if (!parsed.success) return { ok: false, error: "Please check the highlighted fields.", fields: fieldErrors(parsed.error), values: formValues(form) };
     try {
       const result = await handler(parsed.data, { person, meta: await requestMetaFromHeaders() });
-      if (typeof result === "string") return { ok: true, message: result };
-      return result ?? { ok: true };
+      // Successful saves give the values back too, so the form shows what was saved.
+      if (typeof result === "string") return { ok: true, message: result, values: formValues(form) };
+      return result ?? { ok: true, values: formValues(form) };
     } catch (err) {
-      if (err instanceof ActionError) return { ok: false, error: err.message, fields: err.fields };
+      if (err instanceof ActionError) return { ok: false, error: err.message, fields: err.fields, values: formValues(form) };
       console.error(err);
-      return { ok: false, error: "Something went wrong saving that. Nothing was changed. Please try again." };
+      return { ok: false, error: "Something went wrong saving that. Nothing was changed. Please try again.", values: formValues(form) };
     }
   };
 }
