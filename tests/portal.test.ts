@@ -105,3 +105,21 @@ describe("locales", () => {
     expect(labels["zh-Hant"]).toBe("繁體中文");
   });
 });
+
+describe("startOfPacificDay", async () => {
+  const { startOfPacificDay } = await import("@/lib/dates");
+  it("is local midnight under daylight time (UTC-7)", () => {
+    expect(startOfPacificDay(new Date("2026-07-15T18:00:00Z")).toISOString()).toBe("2026-07-15T07:00:00.000Z");
+    // 01:30 UTC on the 16th is still the evening of the 15th in Surrey.
+    expect(startOfPacificDay(new Date("2026-07-16T01:30:00Z")).toISOString()).toBe("2026-07-15T07:00:00.000Z");
+  });
+  it("is local midnight under standard time (UTC-8)", () => {
+    expect(startOfPacificDay(new Date("2026-12-01T20:00:00Z")).toISOString()).toBe("2026-12-01T08:00:00.000Z");
+    expect(startOfPacificDay(new Date("2026-12-02T07:59:00Z")).toISOString()).toBe("2026-12-01T08:00:00.000Z");
+  });
+  it("handles the days the clocks change", () => {
+    // 2026-03-08: midnight is still PST; 2026-11-01: midnight is still PDT.
+    expect(startOfPacificDay(new Date("2026-03-08T20:00:00Z")).toISOString()).toBe("2026-03-08T08:00:00.000Z");
+    expect(startOfPacificDay(new Date("2026-11-01T20:00:00Z")).toISOString()).toBe("2026-11-01T07:00:00.000Z");
+  });
+});

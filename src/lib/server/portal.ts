@@ -20,6 +20,7 @@ import {
   volunteerTasks,
 } from "@/lib/db/schema";
 import { pacificYearMonth, type Slate } from "@/lib/contributions";
+import { startOfPacificDay } from "@/lib/dates";
 import { esc, layout, paragraph, textVersion } from "@/lib/email/templates";
 import { roomLeftCents } from "@/lib/engagement";
 import { env } from "@/lib/env";
@@ -218,8 +219,8 @@ export async function upcomingRsvps(db: Db, personId: string, now = new Date()):
     })
     .from(eventRsvps)
     .innerJoin(events, eq(events.id, eventRsvps.eventId))
-    // Keep today's events until the end of the day.
-    .where(and(eq(eventRsvps.personId, personId), gte(events.startsAt, new Date(now.getTime() - 6 * 3600_000))))
+    // Keep today's events (Surrey's day) until the day is over.
+    .where(and(eq(eventRsvps.personId, personId), gte(events.startsAt, startOfPacificDay(now))))
     .orderBy(asc(events.startsAt));
   return rows.map((r) => ({ ...r, calendarUrl: googleCalendarUrl(rsvpToIcs(r)) }));
 }

@@ -167,6 +167,14 @@ await page.waitForTimeout(500);
 ok((await sql`select published from shift_openings where id = ${opening.id}`)[0].published === false, "unpublish from the panel");
 ok((await page.locator(".opening-row.is-draft", { hasText: "Door-knocking in Newton" }).count()) === 1, "draft openings are marked");
 
+// A shift on an opening that is moved to another day or time leaves the opening (frees its spot); a status change does not.
+const [mover] = await sql`insert into people (email, first_name) values ('mover-e2e@example.com', 'Mover') on conflict (email) do update set first_name = 'Mover' returning id`;
+const [onOpening] = await sql`insert into shifts (person_id, date, slot, opening_id, status) select ${mover.id}, date, slot, id, 'scheduled' from shift_openings where id = ${opening.id} returning id`;
+const patchShift = (id, body) => page.evaluate(([id, body]) => fetch(`/api/admin/shifts/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.status), [id, body]);
+ok((await patchShift(onOpening.id, { status: "confirmed" })) === 200 && (await sql`select opening_id from shifts where id = ${onOpening.id}`)[0].opening_id === opening.id, "a status change keeps the shift on its opening");
+ok((await patchShift(onOpening.id, { slot: "evening" })) === 200 && (await sql`select opening_id from shifts where id = ${onOpening.id}`)[0].opening_id === null, "moving the shift to another time takes it off the opening");
+await sql`delete from shifts where id = ${onOpening.id}`;
+
 const anon = await (await fetch(BASE + "/api/admin/shifts", { method: "POST", body: "{}" })).status;
 ok(anon === 401, "shift API requires admin sign-in");
 const csv = await page.evaluate(async () => (await fetch("/api/admin/export/shifts")).text());
