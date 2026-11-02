@@ -37,11 +37,12 @@ export async function POST(req: NextRequest) {
   return json({ id: row.id, url: row.url, width: row.width, height: row.height }, 201);
 }
 
-/** The library, newest first, for the image picker. ?q= searches file names and alt text. */
+/** The library, newest first, for the image picker. ?q= searches file names and alt text; ?images=1 lists images only. */
 export async function GET(req: NextRequest) {
   const auth = await adminOnly("content");
   if (!auth.ok) return auth.response;
   const q = (req.nextUrl.searchParams.get("q") ?? "").slice(0, 80);
-  const rows = await listMedia(getDb(), { q, limit: 200 });
+  const imagesOnly = req.nextUrl.searchParams.get("images") === "1";
+  const rows = await listMedia(getDb(), { q, limit: 200, imagesOnly });
   return json(rows.map((m) => ({ id: m.id, url: m.url, alt: m.alt, filename: m.filename, mime: m.mime, width: m.width, height: m.height, createdAt: m.createdAt })));
 }

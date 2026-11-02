@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { deleteMedia, updateMediaAlt } from "@/app/admin/(secure)/media/actions";
 import { fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { ActionForm } from "./ActionForm";
+import { useCmsForm } from "./useCmsForm";
 
 export type MediaCardItem = {
   id: string;
@@ -26,7 +27,8 @@ function formatSize(bytes: number): string {
 }
 
 export function MediaCard({ item }: { item: MediaCardItem }) {
-  const [state, action] = useActionState(updateMediaAlt, null);
+  const form = useCmsForm(updateMediaAlt);
+  const { state } = form;
   const [copied, setCopied] = useState<"done" | "failed" | null>(null);
   const urlInput = useRef<HTMLInputElement>(null);
   const isImage = item.mime.startsWith("image/");
@@ -62,11 +64,11 @@ export function MediaCard({ item }: { item: MediaCardItem }) {
         {new Date(item.createdAt).toLocaleDateString("en-CA", { timeZone: "America/Vancouver", month: "short", day: "numeric", year: "numeric" })}
         {item.uploadedBy ? ` · ${item.uploadedBy}` : ""}
       </p>
-      <form action={action} className="stack" style={{ gap: 8 }}>
+      <form key={form.key} action={form.action} className="stack" style={{ gap: 8 }}>
         <input type="hidden" name="id" value={item.id} />
         <div className="field">
           <label htmlFor={`alt-${item.id}`}>Alt text</label>
-          <input id={`alt-${item.id}`} name="alt" className="input" defaultValue={item.alt} maxLength={300} aria-invalid={fieldError(state, "alt") ? true : undefined} />
+          <input id={`alt-${item.id}`} name="alt" className="input" defaultValue={form.text("alt", item.alt)} maxLength={300} aria-invalid={fieldError(state, "alt") ? true : undefined} />
           {fieldError(state, "alt") && <p className="field-error">{fieldError(state, "alt")}</p>}
         </div>
         <div>

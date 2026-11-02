@@ -123,7 +123,8 @@ ok(Boolean(login.value) && login.status === 303, `password sign-in sets the sess
 const authed = { cookie: `${COOKIE}=${login.value}` };
 
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1360, height: 960 } });
+// Reduced motion turns off smooth scrolling, so clicks below the fold land at once.
+const context = await browser.newContext({ viewport: { width: 1360, height: 960 }, reducedMotion: "reduce" });
 await context.addCookies([{ name: COOKIE, value: login.value, domain: "localhost", path: "/" }]);
 const page = await context.newPage();
 page.on("dialog", (d) => d.accept());
@@ -188,6 +189,21 @@ await page.fill("#scheduledAt", "2020-01-01T09:00");
 await page.click('button:has-text("Schedule")');
 await page.locator("[role=alert]").waitFor({ timeout: 15_000 });
 ok((await page.locator("#scheduledAt-error").textContent()).includes("future"), "past schedule time shows a field error");
+ok(
+  (await page.inputValue("#title")) === "Bad schedule" && (await page.inputValue("#summary")) === "x" && (await page.inputValue("#body")) === "x" && (await page.inputValue("#scheduledAt")) === "2020-01-01T09:00",
+  "a refused post keeps everything that was typed",
+);
+// Another post already uses this address: the error keeps the summary, body and image too.
+await page.fill("#slug", post1.slug);
+await page.fill("#summary", "A summary worth keeping.");
+await page.fill("#image-url", uploadedUrl);
+await page.fill("#image-alt", "Kept alt text");
+await page.click('button:has-text("Save as draft")');
+await page.locator("#slug-error").waitFor({ timeout: 15_000 });
+ok(
+  (await page.inputValue("#summary")) === "A summary worth keeping." && (await page.inputValue("#slug")) === post1.slug && (await page.inputValue("#image-url")) === uploadedUrl && (await page.inputValue("#image-alt")) === "Kept alt text",
+  "a slug clash keeps the summary, the address and the image as typed",
+);
 ok((await sql`select count(*)::int c from news_posts where title = 'Bad schedule'`)[0].c === 0, "nothing was saved for the refused post");
 
 // ── Site settings ─────────────────────────────────────────────────────────
@@ -205,6 +221,16 @@ const [announcement] = await sql`select value from site_settings where key = 'an
 ok(announcement && announcement.value.enabled === true && announcement.value.text === "Town hall this Saturday in Newton" && announcement.value.linkHref === "/events", "announcement section saved as validated JSON in site_settings");
 await page.goto(BASE + "/admin/settings");
 ok((await page.locator(".cms-card", { hasText: "Announcement bar" }).locator(".cms-badge--live").count()) === 1, "index shows the section as customized");
+
+// A refused settings save keeps the section as typed (the server check, past the browser's own).
+await page.goto(BASE + "/admin/settings/org");
+await page.evaluate(() => document.querySelectorAll("form").forEach((f) => (f.noValidate = true)));
+await page.fill("#sf-phone", "604 555 0100");
+await page.fill("#sf-email", "not-an-email");
+await page.click('button:has-text("Save changes")');
+await page.locator(".cms-form [role=alert]").waitFor({ timeout: 15_000 });
+ok((await page.inputValue("#sf-email")) === "not-an-email" && (await page.inputValue("#sf-phone")) === "604 555 0100", "a settings error keeps the section as typed");
+ok((await sql`select count(*)::int c from site_settings where key = 'org'`)[0].c === 0, "and saves nothing");
 
 await page.goto(BASE + "/admin/settings/hero");
 const wordsBefore = await page.locator('input[id^="sf-words-"]').count();
@@ -243,22 +269,56 @@ ok(r === true, "unpublishing takes the page off the site");
 
 await page.goto(BASE + "/admin/pages/new");
 await page.fill("#title", "News");
-await page.fill("#body", "x");
+await page.fill("#summary", "Kept summary");
+await page.fill("#body", "Kept body");
+await page.check('input[name="showInFooter"]');
 await page.click('button:has-text("Create page")');
 await page.locator("[role=alert]").waitFor({ timeout: 15_000 });
 ok((await page.locator("#slug-error").textContent()).includes("already part of the site"), "a reserved address is refused");
+ok(
+  (await page.inputValue("#summary")) === "Kept summary" && (await page.inputValue("#body")) === "Kept body" && (await page.isChecked('input[name="showInFooter"]')) && !(await page.isChecked('input[name="published"]')),
+  "and the page keeps what was typed, ticks included",
+);
 
 // ── Events, RSVPs and check-in ────────────────────────────────────────────
 
 await page.goto(BASE + "/admin/content/events/new");
 await page.fill("#title", "Door-knock in Newton");
 await page.fill("#startsAt", pacificLocal(2, 10));
-await page.fill("#endsAt", pacificLocal(2, 12));
+await page.fill("#endsAt", pacificLocal(2, 8));
 await page.fill("#location", "Newton Recreation Centre");
 await page.fill("#address", "13730 72 Ave, Surrey");
 await page.selectOption("#neighbourhood", "Newton");
 await page.fill("#capacity", "20");
 await page.fill("#summary", "Meet at the front doors.");
+await page.fill("#description", "Bring **water**.");
+await page.click('button:has-text("Add event")');
+await page.locator("#endsAt-error").waitFor({ timeout: 15_000 });
+const typedEvent = {
+  startsAt: await page.inputValue("#startsAt"),
+  endsAt: await page.inputValue("#endsAt"),
+  location: await page.inputValue("#location"),
+  address: await page.inputValue("#address"),
+  neighbourhood: await page.inputValue("#neighbourhood"),
+  capacity: await page.inputValue("#capacity"),
+  summary: await page.inputValue("#summary"),
+  description: await page.inputValue("#description"),
+};
+ok(
+  JSON.stringify(typedEvent) ===
+    JSON.stringify({
+      startsAt: pacificLocal(2, 10),
+      endsAt: pacificLocal(2, 8),
+      location: "Newton Recreation Centre",
+      address: "13730 72 Ave, Surrey",
+      neighbourhood: "Newton",
+      capacity: "20",
+      summary: "Meet at the front doors.",
+      description: "Bring **water**.",
+    }) && (await page.isChecked('input[name="published"]')),
+  "an end before the start is refused and every field keeps what was typed: " + JSON.stringify(typedEvent),
+);
+await page.fill("#endsAt", pacificLocal(2, 12));
 await page.click('button:has-text("Add event")');
 await page.waitForURL(/\/admin\/content\/events\/[0-9a-f-]{36}\?saved=created/, { timeout: 20_000 });
 const eventId = page.url().match(/events\/([0-9a-f-]{36})/)[1];
@@ -266,6 +326,16 @@ const [ev] = await sql`select slug, neighbourhood, capacity, published, ends_at 
 ok(ev && ev.slug === "door-knock-in-newton" && ev.neighbourhood === "Newton" && ev.capacity === 20 && ev.published && ev.ends_later, "event saved with slug, neighbourhood, capacity and end time");
 const hourInSurrey = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", hour: "numeric", hourCycle: "h23" }).format(ev.starts_at));
 ok(hourInSurrey === 10, `start time was read as Surrey time (${hourInSurrey}:00)`);
+
+await page.fill("#location", "Edited venue (unsaved)");
+await page.fill("#endsAt", pacificLocal(2, 9));
+await page.click('button:has-text("Save changes")');
+await page.locator("#endsAt-error").waitFor({ timeout: 15_000 });
+ok(
+  (await page.inputValue("#location")) === "Edited venue (unsaved)" && (await page.inputValue("#endsAt")) === pacificLocal(2, 9),
+  "on the edit page, a refused save keeps the edit instead of reverting to the saved values",
+);
+ok((await sql`select location from events where id = ${eventId}`)[0].location === "Newton Recreation Centre", "and nothing was saved");
 
 const rsvp = await post(`/api/events/${ev.slug}/rsvp`, { name: "Priya Sandhu", email: "priya.rsvp@example.com", guests: 2, newsletter: false, website: "" });
 ok(rsvp.status === 200, "public RSVP accepted");
@@ -288,6 +358,7 @@ await page.fill("#walkin-email", "marco.walkin@example.com");
 await page.fill("#walkin-guests", "1");
 await page.click('button:has-text("Add walk-in")');
 await page.locator("tr", { hasText: "Marco Reyes" }).waitFor({ timeout: 15_000 });
+ok((await page.inputValue("#walkin-name")) === "" && (await page.inputValue("#walkin-email")) === "" && (await page.inputValue("#walkin-guests")) === "0", "the walk-in form is ready for the next person");
 const [walkIn] = await sql`select r.source, r.checked_in_at, p.first_name, p.last_name, p.source as person_source from event_rsvps r join people p on p.id = r.person_id where r.email = 'marco.walkin@example.com'`;
 ok(walkIn && walkIn.source === "walk-in" && walkIn.checked_in_at && walkIn.first_name === "Marco" && walkIn.last_name === "Reyes" && walkIn.person_source === `event:${ev.slug}`, "walk-in creates the person, an RSVP and checks them in");
 ok((await page.locator('button:has-text("Delete event")').count()) === 0 && (await page.locator('button:has-text("Unpublish")').count()) === 1, "an event with RSVPs offers Unpublish, not Delete");
@@ -301,12 +372,43 @@ await page.fill("#body", "The pool is **closing**. Not on our watch.");
 await page.fill("#statement", "I pledge to show up at council when the pool is on the agenda.");
 await page.fill("#goal", "500");
 await page.fill("#shareText", "I pledged to save the Newton Wave Pool. Will you?");
+await page.fill("#targetEmails", "mayor@surrey.ca\nnot-an-email");
+await page.click('button:has-text("Create campaign")');
+await page.locator("#targetEmails-error").waitFor({ timeout: 15_000 });
+ok(
+  (await page.inputValue("#kind")) === "pledge" && (await page.inputValue("#statement")).startsWith("I pledge") && (await page.inputValue("#goal")) === "500" && (await page.inputValue("#shareText")).startsWith("I pledged") && (await page.inputValue("#targetEmails")) === "mayor@surrey.ca\nnot-an-email",
+  "a bad email in the list keeps every campaign field as typed",
+);
 await page.fill("#targetEmails", "mayor@surrey.ca\nclerk@surrey.ca, Mayor@surrey.ca");
 await page.click('button:has-text("Create campaign")');
 await page.waitForURL(/\/admin\/content\/campaigns\/[0-9a-f-]{36}\?saved=created/, { timeout: 20_000 });
 const [camp] = await sql`select slug, kind, goal, target_emails, active, statement from campaigns where title = 'Save the Newton Wave Pool'`;
 ok(camp && camp.slug === "save-the-newton-wave-pool" && camp.kind === "pledge" && camp.goal === 500 && camp.active && camp.target_emails.length === 2 && camp.target_emails[0] === "mayor@surrey.ca", "campaign saved with kind, goal and a de-duplicated email list");
 ok((await page.locator(".cms-stat").first().textContent()).includes("0 signatures of 500"), "edit page shows the signature count against the goal");
+const campId = page.url().match(/campaigns\/([0-9a-f-]{36})/)[1];
+// Before anyone signs, the address can still change.
+await page.fill("#slug", "save-newton-pool");
+await page.click('button:has-text("Save changes")');
+await page.locator(".cms-form [role=status]", { hasText: "Saved" }).waitFor({ timeout: 15_000 });
+ok((await sql`select slug from campaigns where id = ${campId}`)[0].slug === "save-newton-pool", "an unsigned campaign's address can change");
+const [signer] = await sql`insert into people (email, first_name) values ('signer@example.com', 'Sam') returning id`;
+await sql`insert into campaign_signatures (campaign, person_id, first_name, last_name, email, postal_code) values ('save-newton-pool', ${signer.id}, 'Sam', 'Signer', 'signer@example.com', 'V3W 1A1')`;
+await page.goto(BASE + `/admin/content/campaigns/${campId}`);
+ok(
+  (await page.getAttribute("#slug", "readonly")) !== null && (await page.locator("#slug-hint").textContent()).includes("has signatures") && (await page.locator('button:has-text("Delete campaign")').count()) === 0,
+  "once signed, the address is locked in the form and the campaign can't be deleted",
+);
+// A stale form (or a hand-made request) can't change it either.
+await page.evaluate(() => document.querySelector("#slug").removeAttribute("readonly"));
+await page.fill("#slug", "renamed-after-signing");
+await page.click('button:has-text("Save changes")');
+await page.locator("#slug-error").waitFor({ timeout: 15_000 });
+ok(
+  (await page.locator("#slug-error").textContent()).includes("has signatures") &&
+    (await sql`select slug from campaigns where id = ${campId}`)[0].slug === "save-newton-pool" &&
+    (await sql`select count(*)::int c from campaign_signatures where campaign = 'save-newton-pool'`)[0].c === 1,
+  "renaming a signed campaign is refused, so its signatures stay attached",
+);
 const [fixed] = await sql`select id from campaigns where slug = 'stop-mccallum-pledge'`;
 await page.goto(BASE + `/admin/content/campaigns/${fixed.id}`);
 ok((await page.getAttribute("#slug", "readonly")) !== null && (await page.locator('button:has-text("Delete campaign")').count()) === 0, "seeded campaign keeps its slug and can't be deleted");
@@ -319,6 +421,14 @@ await page.goto(BASE + "/admin/content/products/new");
 await page.fill("#title", "Rally poster");
 await page.fill("#price", "12.50");
 await page.fill("#tileLabel", "Poster");
+await page.fill("#price", "twelve");
+await page.fill("#sortOrder", "7");
+await page.uncheck('input[name="active"]');
+await page.click('button:has-text("Add product")');
+await page.locator("#price-error").waitFor({ timeout: 15_000 });
+ok((await page.inputValue("#price")) === "twelve" && (await page.inputValue("#sortOrder")) === "7" && !(await page.isChecked('input[name="active"]')) && (await page.inputValue("#title")) === "Rally poster", "a bad price keeps the product as typed");
+await page.fill("#price", "12.50");
+await page.check('input[name="active"]');
 await page.click('button:has-text("Add product")');
 await page.waitForURL(/\/admin\/content\/products\/[0-9a-f-]{36}\?saved=created/, { timeout: 20_000 });
 const [prod] = await sql`select slug, price_cents, active, tile_background from products where name = 'Rally poster'`;
@@ -337,6 +447,20 @@ await card.locator("[role=status]", { hasText: "Alt text saved" }).waitFor({ tim
 ok((await sql`select alt from media where id = ${mediaRow.id}`)[0].alt === "Office front door", "alt text can be edited in the library");
 const list = await fetch(BASE + "/api/admin/media?q=office", { headers: authed }).then((x) => x.json());
 ok(Array.isArray(list) && list.length === 1 && list[0].url === uploadedUrl, "library API lists uploads for the picker");
+const pdf = new FormData();
+pdf.set("file", new Blob(["%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"], { type: "application/pdf" }), "platform.pdf");
+pdf.set("alt", "Our platform");
+res = await fetch(BASE + "/api/admin/media", { method: "POST", headers: authed, body: pdf });
+ok(res.status === 201, "a PDF can go in the library");
+const all = await fetch(BASE + "/api/admin/media", { headers: authed }).then((x) => x.json());
+const imagesOnly = await fetch(BASE + "/api/admin/media?images=1", { headers: authed }).then((x) => x.json());
+ok(all.some((m) => m.filename === "platform.pdf") && !imagesOnly.some((m) => m.filename === "platform.pdf") && imagesOnly.some((m) => m.filename === "office.png"), "the library API lists images only when asked");
+await page.goto(BASE + "/admin/content/news/new");
+await page.click('button:has-text("Choose from library")');
+await page.locator(".media-pick").first().waitFor({ timeout: 15_000 });
+const pickable = await page.locator(".media-pick-name").allTextContents();
+ok(pickable.length >= 1 && !pickable.some((t) => t.includes("platform")) && pickable.some((t) => t.includes("Office front door")), "the image picker doesn't offer the PDF: " + JSON.stringify(pickable));
+await page.keyboard.press("Escape");
 const badType = new FormData();
 badType.set("file", new Blob(["hello"], { type: "text/plain" }), "notes.txt");
 res = await fetch(BASE + "/api/admin/media", { method: "POST", headers: authed, body: badType });

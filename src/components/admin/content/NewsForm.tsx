@@ -1,15 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
 import { saveNews } from "@/app/admin/(secure)/content/news/actions";
 import { fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
-import { useActionRedirect } from "./ActionForm";
 import { dateToPacificLocal, publishStatus } from "./fields";
 import { ImageField } from "./ImageField";
 import { Badge, TextareaField } from "./Inputs";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { TitleSlugFields } from "./TitleSlugFields";
+import { useCmsForm } from "./useCmsForm";
 
 export type NewsFormValues = {
   id: string;
@@ -29,28 +28,28 @@ function tomorrowNine(): string {
 }
 
 export function NewsForm({ post }: { post?: NewsFormValues }) {
-  const [state, action] = useActionState(saveNews, null);
-  useActionRedirect(state);
+  const form = useCmsForm(saveNews);
+  const { state } = form;
   const status = post ? publishStatus(post.publishedAt) : "draft";
   const scheduledDefault = status === "scheduled" && post?.publishedAt ? dateToPacificLocal(new Date(post.publishedAt)) : tomorrowNine();
 
   return (
-    <form action={action} className="cms-form">
+    <form key={form.key} action={form.action} className="cms-form">
       {post && <input type="hidden" name="id" value={post.id} />}
-      <TitleSlugFields titleLabel="Headline" defaultTitle={post?.title} defaultSlug={post?.slug} urlPrefix="/news/" titleError={fieldError(state, "title")} slugError={fieldError(state, "slug")} />
+      <TitleSlugFields titleLabel="Headline" defaultTitle={form.text("title", post?.title)} defaultSlug={form.text("slug", post?.slug)} urlPrefix="/news/" titleError={fieldError(state, "title")} slugError={fieldError(state, "slug")} />
       <TextareaField
         id="summary"
         name="summary"
         label="Summary"
         hint="One or two sentences. Shown on the home page and in the news list."
-        defaultValue={post?.summary}
+        defaultValue={form.text("summary", post?.summary)}
         required
         maxLength={400}
         rows={3}
         error={fieldError(state, "summary")}
       />
-      <MarkdownEditor id="body" name="body" label="Full text" defaultValue={post?.body} required maxLength={50_000} error={fieldError(state, "body")} />
-      <ImageField defaultUrl={post?.imageUrl} defaultAlt={post?.imageAlt} urlError={fieldError(state, "imageUrl")} altError={fieldError(state, "imageAlt")} />
+      <MarkdownEditor id="body" name="body" label="Full text" defaultValue={form.text("body", post?.body)} required maxLength={50_000} error={fieldError(state, "body")} />
+      <ImageField defaultUrl={form.text("imageUrl", post?.imageUrl)} defaultAlt={form.text("imageAlt", post?.imageAlt)} urlError={fieldError(state, "imageUrl")} altError={fieldError(state, "imageAlt")} />
 
       <Notice state={state} />
       <div className="cms-publish">
@@ -82,7 +81,7 @@ export function NewsForm({ post }: { post?: NewsFormValues }) {
               name="scheduledAt"
               type="datetime-local"
               className="input"
-              defaultValue={scheduledDefault}
+              defaultValue={form.text("scheduledAt", scheduledDefault)}
               aria-invalid={fieldError(state, "scheduledAt") ? true : undefined}
               aria-describedby={fieldError(state, "scheduledAt") ? "scheduledAt-error" : undefined}
             />

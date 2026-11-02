@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 
 export type ImageValue = { url: string; alt: string };
-export type MediaItem = { id: string; url: string; alt: string; filename: string; width: number | null; height: number | null };
+export type MediaItem = { id: string; url: string; alt: string; filename: string; mime?: string; width: number | null; height: number | null };
+
+/** Only pictures can go where an image is expected: a PDF in the library is not one. */
+export function isImageItem(item: Pick<MediaItem, "mime">): boolean {
+  return typeof item.mime === "string" && item.mime.startsWith("image/");
+}
 
 const ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/svg+xml";
 
@@ -15,7 +20,7 @@ async function uploadFile(file: File, alt: string): Promise<{ ok: true; item: Me
     const res = await fetch("/api/admin/media", { method: "POST", body });
     const data = (await res.json().catch(() => ({}))) as { error?: string; id?: string; url?: string; width?: number | null; height?: number | null };
     if (!res.ok || !data.url || !data.id) return { ok: false, error: data.error ?? "The upload failed. Please try again." };
-    return { ok: true, item: { id: data.id, url: data.url, alt, filename: file.name, width: data.width ?? null, height: data.height ?? null } };
+    return { ok: true, item: { id: data.id, url: data.url, alt, filename: file.name, mime: file.type, width: data.width ?? null, height: data.height ?? null } };
   } catch {
     return { ok: false, error: "The upload failed. Check your connection and try again." };
   }
@@ -205,11 +210,11 @@ export function MediaPicker({ onPick, onClose }: { onPick: (item: MediaItem) => 
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/admin/media?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/admin/media?images=1&q=${encodeURIComponent(q)}`);
         const data = (await res.json()) as MediaItem[] | { error: string };
         if (cancelled) return;
         if (!res.ok || !Array.isArray(data)) setError((data as { error?: string }).error ?? "Could not load the library.");
-        else setItems(data);
+        else setItems(data.filter(isImageItem));
       } catch {
         if (!cancelled) setError("Could not load the library.");
       }

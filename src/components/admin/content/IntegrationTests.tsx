@@ -5,6 +5,7 @@ import { sendTestEmail, sendTestSms } from "@/app/admin/(secure)/integrations/ac
 import { fieldError, Notice } from "@/components/admin/Notice";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { TextField } from "@/components/forms/Field";
+import { useCmsForm } from "./useCmsForm";
 
 export function TestEmailForm({ to }: { to: string }) {
   const [state, action] = useActionState(sendTestEmail, null);
@@ -22,10 +23,11 @@ export function TestEmailForm({ to }: { to: string }) {
 }
 
 export function TestSmsForm() {
-  const [state, action] = useActionState(sendTestSms, null);
+  const form = useCmsForm(sendTestSms);
+  const { state } = form;
   return (
-    <form action={action} className="stack" style={{ gap: 8 }}>
-      <TextField id="test-sms-to" name="to" type="tel" label="Send a test text to (your own phone)" required autoComplete="tel" placeholder="604 555 0100" error={fieldError(state, "to")} />
+    <form key={form.key} action={form.action} className="stack" style={{ gap: 8 }}>
+      <TextField id="test-sms-to" name="to" type="tel" label="Send a test text to (your own phone)" required autoComplete="tel" placeholder="604 555 0100" defaultValue={form.text("to", "")} error={fieldError(state, "to")} />
       <div>
         <SubmitButton className="btn btn--outline btn--sm" pendingText="Sending…">
           Send a test text

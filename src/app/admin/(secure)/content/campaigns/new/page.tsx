@@ -6,7 +6,7 @@ export default async function NewCampaign() {
   await requireAdmin("content");
   return (
     <AdminPage title="Start a campaign" crumbs={[{ href: "/admin/content", label: "Content" }, { href: "/admin/content/campaigns", label: "Petitions and pledges" }]}>
-      <CampaignForm slugFixed={false} />
+      <CampaignForm />
     </AdminPage>
   );
 }

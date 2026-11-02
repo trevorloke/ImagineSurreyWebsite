@@ -41,7 +41,7 @@ export default async function EditCampaign({ params, searchParams }: PageProps<"
           <Link href="/admin/exports">All exports</Link>
         </div>
       </div>
-      <CampaignForm campaign={{ ...campaign }} slugFixed={fixed} />
+      <CampaignForm campaign={{ ...campaign }} slugLock={fixed ? "fixed" : signatures > 0 ? "signed" : null} />
       <div className="cms-danger">
         {fixed ? (
           <p>This campaign is built into the home page, so it can&apos;t be deleted. Untick &ldquo;Active&rdquo; to stop collecting signatures.</p>

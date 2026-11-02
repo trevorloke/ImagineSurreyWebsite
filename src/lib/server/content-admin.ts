@@ -109,13 +109,16 @@ export async function loadPage(db: Db, id: string) {
 
 // ── Media ─────────────────────────────────────────────────────────────────
 
-export async function listMedia(db: Db, options: { q?: string; limit?: number } = {}) {
+/** The media library, newest first. `imagesOnly` leaves out PDFs and anything else that can't be shown as a picture. */
+export async function listMedia(db: Db, options: { q?: string; limit?: number; imagesOnly?: boolean } = {}) {
   const q = options.q?.trim();
+  const search = q ? sql`(${media.filename} ilike ${"%" + q + "%"} or ${media.alt} ilike ${"%" + q + "%"})` : undefined;
+  const images = options.imagesOnly ? sql`${media.mime} like 'image/%'` : undefined;
   const rows = await db
     .select({ media, uploadedBy: adminUsers.name })
     .from(media)
     .leftJoin(adminUsers, eq(adminUsers.id, media.uploadedById))
-    .where(q ? sql`${media.filename} ilike ${"%" + q + "%"} or ${media.alt} ilike ${"%" + q + "%"}` : undefined)
+    .where(and(search, images))
     .orderBy(desc(media.createdAt))
     .limit(options.limit ?? 200);
   return rows.map((r) => ({ ...r.media, uploadedBy: r.uploadedBy }));
