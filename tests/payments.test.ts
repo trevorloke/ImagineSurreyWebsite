@@ -1,7 +1,16 @@
 // The pure rules behind checkout and the limit, and the request plumbing the
 // public money routes share. Nothing here touches the database or Stripe.
 import { describe, expect, it, vi } from "vitest";
-import { allocateRefund, checkAnnualLimit, membershipTerm, recurringStatusFor, remainingMonthlyPayments } from "@/lib/contributions";
+import {
+  allocatePayment,
+  allocateRefund,
+  checkAnnualLimit,
+  membershipTerm,
+  recurringStatusFor,
+  remainingMonthlyPayments,
+  subscriptionEndsBeforeNextPayment,
+} from "@/lib/contributions";
+import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
 
 vi.mock("server-only", () => ({}));
 const { overLimitMessage } = await import("@/lib/server/limits");
@@ -51,15 +60,16 @@ describe("allocateRefund (reconciling with what Stripe says is refunded)", () =>
     { id: "sb", slate: "school_board" as const, amountCents: 142970, refundedCents: 0, createdAt: new Date(1) },
     { id: "c", slate: "council" as const, amountCents: 142970, refundedCents: 0, createdAt: new Date(2) },
   ];
+  const settled = { refundPendingCents: 0 };
 
   it("takes a partial refund off council first", () => {
-    expect(allocateRefund(rows, 50000)).toEqual([{ id: "c", refundedCents: 50000, fullyRefunded: false }]);
+    expect(allocateRefund(rows, 50000)).toEqual([{ id: "c", refundedCents: 50000, ...settled, fullyRefunded: false, status: null }]);
   });
 
   it("fills council then spills into the school board slate", () => {
     expect(allocateRefund(rows, 200000)).toEqual([
-      { id: "c", refundedCents: 142970, fullyRefunded: true },
-      { id: "sb", refundedCents: 57030, fullyRefunded: false },
+      { id: "c", refundedCents: 142970, ...settled, fullyRefunded: true, status: "refunded" },
+      { id: "sb", refundedCents: 57030, ...settled, fullyRefunded: false, status: null },
     ]);
   });
 
@@ -69,18 +79,36 @@ describe("allocateRefund (reconciling with what Stripe says is refunded)", () =>
       { ...rows[0], refundedCents: 0 },
     ];
     expect(allocateRefund(partly, 50000)).toEqual([]);
-    expect(allocateRefund(partly, 60000)).toEqual([{ id: "c", refundedCents: 60000, fullyRefunded: false }]);
+    expect(allocateRefund(partly, 60000)).toEqual([{ id: "c", refundedCents: 60000, ...settled, fullyRefunded: false, status: null }]);
   });
 
-  it("treats our own pending over-limit refund as already returned", () => {
+  it("settles our own pending refund once Stripe shows the money returned, however it was returned", () => {
     const pending = [{ id: "c", slate: "council" as const, amountCents: 1000, refundedCents: 0, refundPendingCents: 1000 }];
-    expect(allocateRefund(pending, 1000)).toEqual([]);
+    expect(allocateRefund(pending, 1000)).toEqual([{ id: "c", refundedCents: 1000, refundPendingCents: 0, fullyRefunded: true, status: "refunded_over_limit" }]);
+    // A dashboard refund of part of it leaves the rest to send.
+    const partOf = [{ id: "c", slate: "council" as const, amountCents: 10000, refundedCents: 0, refundPendingCents: 7030 }];
+    expect(allocateRefund(partOf, 3000)).toEqual([{ id: "c", refundedCents: 3000, refundPendingCents: 4030, fullyRefunded: false, status: null }]);
+    // More than the pending amount is a dashboard refund on top.
+    expect(allocateRefund(partOf, 9000)).toEqual([{ id: "c", refundedCents: 9000, refundPendingCents: 0, fullyRefunded: false, status: null }]);
+    expect(allocateRefund(partOf, 10000)).toEqual([{ id: "c", refundedCents: 10000, refundPendingCents: 0, fullyRefunded: true, status: "refunded" }]);
+  });
+
+  it("gives a refund Stripe attributes to a row to that row before settling council first", () => {
+    const two = [
+      { id: "c", slate: "council" as const, amountCents: 142970, refundedCents: 0, refundPendingCents: 2000 },
+      { id: "sb", slate: "school_board" as const, amountCents: 142970, refundedCents: 0, refundPendingCents: 3000, confirmedCents: 3000 },
+    ];
+    expect(allocateRefund(two, 3000)).toEqual([{ id: "sb", refundedCents: 3000, refundPendingCents: 0, fullyRefunded: false, status: null }]);
+    expect(allocateRefund(two, 5000)).toEqual([
+      { id: "c", refundedCents: 2000, refundPendingCents: 0, fullyRefunded: false, status: null },
+      { id: "sb", refundedCents: 3000, refundPendingCents: 0, fullyRefunded: false, status: null },
+    ]);
   });
 
   it("marks a row refunded only when nothing of it is left", () => {
     const one = [{ id: "c", slate: "council" as const, amountCents: 5000, refundedCents: 0 }];
-    expect(allocateRefund(one, 4999)).toEqual([{ id: "c", refundedCents: 4999, fullyRefunded: false }]);
-    expect(allocateRefund(one, 5000)).toEqual([{ id: "c", refundedCents: 5000, fullyRefunded: true }]);
+    expect(allocateRefund(one, 4999)).toEqual([{ id: "c", refundedCents: 4999, ...settled, fullyRefunded: false, status: null }]);
+    expect(allocateRefund(one, 5000)).toEqual([{ id: "c", refundedCents: 5000, ...settled, fullyRefunded: true, status: "refunded" }]);
   });
 
   it("never allocates more than the rows hold, and nothing for a smaller figure than recorded", () => {
@@ -95,9 +123,71 @@ describe("recurringStatusFor", () => {
     expect(recurringStatusFor("canceled")).toBe("cancelled");
     expect(recurringStatusFor("unpaid")).toBe("cancelled");
     expect(recurringStatusFor("paused")).toBe("cancelled");
-    expect(recurringStatusFor("past_due")).toBeNull();
+    expect(recurringStatusFor("past_due")).toBe("active");
     expect(recurringStatusFor("active")).toBe("active");
     expect(recurringStatusFor("something_new")).toBeNull();
+  });
+
+  it("cancels a gift that will take no further payment, and brings it back when the donor changes their mind", () => {
+    expect(recurringStatusFor("active", true)).toBe("cancelled");
+    expect(recurringStatusFor("trialing", true)).toBe("cancelled");
+    expect(recurringStatusFor("past_due", true)).toBe("cancelled");
+    expect(recurringStatusFor("active", false)).toBe("active");
+    expect(recurringStatusFor("past_due", false)).toBe("active");
+    expect(recurringStatusFor("incomplete", true)).toBeNull();
+  });
+});
+
+describe("subscriptionEndsBeforeNextPayment", () => {
+  const periodEnd = 1_800_000_000;
+
+  it("is true when the donor cancels at the end of the period already paid for", () => {
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: true, cancelAt: null, periodEnd })).toBe(true);
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: true })).toBe(true);
+  });
+
+  it("is true when Stripe cancels on or before the next payment is due", () => {
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: false, cancelAt: periodEnd, periodEnd })).toBe(true);
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: false, cancelAt: periodEnd - 3600, periodEnd })).toBe(true);
+  });
+
+  it("keeps reserving while further payments will still happen", () => {
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: false, cancelAt: periodEnd + 86400 * 40, periodEnd })).toBe(false);
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: false, cancelAt: null, periodEnd })).toBe(false);
+    // Without the period end we can't tell, so the gift keeps its room (the webhook backstop covers the rest).
+    expect(subscriptionEndsBeforeNextPayment({ cancelAtPeriodEnd: false, cancelAt: periodEnd, periodEnd: null })).toBe(false);
+  });
+});
+
+describe("allocatePayment (recording what a monthly invoice actually collected)", () => {
+  const superstar = { council: 11900, school_board: 11900 };
+
+  it("records the gift's amounts when the invoice was paid in full", () => {
+    expect(allocatePayment(superstar, 23800)).toEqual(superstar);
+    expect(allocatePayment({ council: 2500 }, 2500)).toEqual({ council: 2500 });
+  });
+
+  it("shares a smaller payment in proportion, with rounding cents going to council first", () => {
+    expect(allocatePayment(superstar, 11900)).toEqual({ council: 5950, school_board: 5950 });
+    expect(allocatePayment(superstar, 11901)).toEqual({ council: 5951, school_board: 5950 });
+    expect(allocatePayment({ council: 3000, school_board: 1000 }, 999)).toEqual({ council: 750, school_board: 249 });
+    expect(allocatePayment({ council: 2500 }, 1250)).toEqual({ council: 1250 });
+  });
+
+  it("never records more than was paid, and nothing for a payment of nothing", () => {
+    for (const paid of [1, 2, 3, 777, 12345, 23799]) {
+      const out = allocatePayment(superstar, paid);
+      expect((out.council ?? 0) + (out.school_board ?? 0)).toBe(paid);
+      expect(out.council ?? 0).toBeGreaterThanOrEqual(out.school_board ?? 0);
+    }
+    expect(allocatePayment(superstar, 1)).toEqual({ council: 1 });
+    expect(allocatePayment(superstar, 0)).toEqual({});
+    expect(allocatePayment(superstar, -5)).toEqual({});
+    expect(allocatePayment({}, 1000)).toEqual({});
+  });
+
+  it("records the money actually received when it is more than the gift's amounts", () => {
+    expect(allocatePayment(superstar, 30000)).toEqual({ council: 15000, school_board: 15000 });
   });
 });
 
@@ -153,5 +243,26 @@ describe("splitPublicFormExtras", () => {
     const { request: rest, extras } = await splitPublicFormExtras(request("not json"));
     expect(extras).toEqual({});
     await expect(rest.json()).rejects.toThrow();
+  });
+});
+
+describe("membershipFeeReturnedEmail", () => {
+  const ctx = { siteUrl: "https://example.org", orgName: "Imagine Surrey", orgEmail: "hello@imaginesurrey.ca" };
+
+  it("tells the payer the fee went back and how to sort it out, without any amounts, and escapes their name", () => {
+    const message = membershipFeeReturnedEmail(ctx, { firstName: "A<b>" });
+    expect(message.subject).toBe("About your Imagine Surrey membership");
+    expect(message.html).toContain("A&lt;b&gt;");
+    expect(message.html).not.toContain("A<b>");
+    expect(message.html).toContain("mailto:hello@imaginesurrey.ca");
+    expect(message.html).toContain("refunded your fee in full");
+    expect(message.html).not.toMatch(/\$\d/);
+    expect(message.text).toContain("hello@imaginesurrey.ca");
+    expect(message.text).toContain("refunded your fee in full");
+    expect(message.text).not.toMatch(/\$\d/);
+  });
+
+  it("greets someone without a first name on file", () => {
+    expect(membershipFeeReturnedEmail(ctx, { firstName: " " }).text).toMatch(/^Hi, thanks for joining/m);
   });
 });

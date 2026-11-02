@@ -1,15 +1,27 @@
 import "server-only";
-import { and, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { contributions, memberships, orders, people, recurringDonations, stripeEvents } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe, type Stripe } from "@/lib/stripe";
-import { allocateRefund, excessOverLimit, membershipTerm, pacificYearBounds, pacificYearMonth, recurringStatusFor, type Slate } from "@/lib/contributions";
+import {
+  allocatePayment,
+  excessOverLimit,
+  membershipTerm,
+  pacificYearBounds,
+  pacificYearMonth,
+  recurringStatusFor,
+  SLATES,
+  subscriptionEndsBeforeNextPayment,
+} from "@/lib/contributions";
+import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
+import { sendEmail } from "./email";
 import { lockPerson, type Querier } from "./limits";
 import { notifyDonationSucceeded, notifyMembershipActive, notifyOrderPaid, notifyRecurringStarted } from "./notifications";
 import { latestActiveMembershipExpiry } from "./payments";
 import { findOrCreatePerson } from "./people";
-import { issuePendingRefunds } from "./stripe-refunds";
+import { getSettings } from "./settings";
+import { issuePendingRefunds, reconcileRefunds } from "./stripe-refunds";
 
 type Tx = Querier;
 type Contribution = typeof contributions.$inferSelect;
@@ -19,6 +31,8 @@ export type WebhookResult = "processed" | "duplicate" | "ignored";
 /** What happened in the transaction, for the notification hooks after it commits. */
 interface Effects {
   membershipIds: string[];
+  /** Memberships cancelled because their fee went back as over the limit; the payer is told privately. */
+  feeReturnedMembershipIds: string[];
   contributionIds: string[];
   recurringIds: string[];
   orderIds: string[];
@@ -34,7 +48,7 @@ type Prepared =
   | { kind: "checkout_paid"; session: Stripe.Checkout.Session; paidAt: Date; orderPersonId: string | null }
   | { kind: "checkout_abandoned"; session: Stripe.Checkout.Session }
   | { kind: "invoice_paid"; invoice: Stripe.Invoice; subscriptionId: string | null; giftId: string | null; paymentIntentId: string | null; paidAt: Date }
-  | { kind: "subscription_status"; subscriptionId: string; status: string; at: Date }
+  | { kind: "subscription_status"; subscriptionId: string; status: string; endsBeforeNextPayment: boolean; at: Date }
   | { kind: "charge_refunded"; charge: Stripe.Charge }
   | { kind: "noop" }
   | { kind: "ignored" };
@@ -54,7 +68,7 @@ export async function handleStripeEvent(db: Db, event: Stripe.Event): Promise<We
   }
 
   const prepared = await prepare(db, event);
-  const effects: Effects = { membershipIds: [], contributionIds: [], recurringIds: [], orderIds: [] };
+  const effects: Effects = { membershipIds: [], feeReturnedMembershipIds: [], contributionIds: [], recurringIds: [], orderIds: [] };
   const result = await db.transaction(async (tx): Promise<WebhookResult> => {
     const inserted = await tx.insert(stripeEvents).values({ id: event.id, type: event.type }).onConflictDoNothing().returning();
     if (inserted.length === 0) return "duplicate";
@@ -110,6 +124,17 @@ export function invoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
   return idOf(paid?.payment?.payment_intent);
 }
 
+/**
+ * When a subscription's next payment is due, in seconds: on its items from
+ * API version 2025-03-31, on the subscription itself before that.
+ */
+export function subscriptionPeriodEnd(subscription: Stripe.Subscription): number | null {
+  const ends = (subscription.items?.data ?? []).map((item) => item.current_period_end).filter((n): n is number => typeof n === "number");
+  if (ends.length) return Math.min(...ends);
+  const legacy = (subscription as unknown as { current_period_end?: number | null }).current_period_end;
+  return typeof legacy === "number" ? legacy : null;
+}
+
 /** Shipping as collected at checkout, from either the current or the pre-2025-03-31 shape. */
 export function sessionShipping(session: Stripe.Checkout.Session): Record<string, unknown> | null {
   const legacy = (session as unknown as { shipping_details?: Record<string, unknown> | null }).shipping_details;
@@ -141,11 +166,23 @@ async function prepare(db: Db, event: Stripe.Event): Promise<Prepared> {
     case "invoice.paid":
       return prepareInvoice(db, event.data.object, eventTime(event));
     case "customer.subscription.deleted":
-      return { kind: "subscription_status", subscriptionId: event.data.object.id, status: "canceled", at: eventTime(event) };
+      return { kind: "subscription_status", subscriptionId: event.data.object.id, status: "canceled", endsBeforeNextPayment: true, at: eventTime(event) };
     case "customer.subscription.updated":
     case "customer.subscription.paused":
-    case "customer.subscription.resumed":
-      return { kind: "subscription_status", subscriptionId: event.data.object.id, status: event.data.object.status, at: eventTime(event) };
+    case "customer.subscription.resumed": {
+      const subscription = event.data.object;
+      return {
+        kind: "subscription_status",
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        endsBeforeNextPayment: subscriptionEndsBeforeNextPayment({
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          cancelAt: subscription.cancel_at,
+          periodEnd: subscriptionPeriodEnd(subscription),
+        }),
+        at: eventTime(event),
+      };
+    }
     case "charge.refunded":
       return { kind: "charge_refunded", charge: event.data.object };
     default:
@@ -205,7 +242,7 @@ async function apply(tx: Tx, p: Prepared, effects: Effects): Promise<WebhookResu
       await invoicePaid(tx, p, effects);
       return "processed";
     case "subscription_status":
-      await subscriptionStatus(tx, p.subscriptionId, p.status, p.at);
+      await subscriptionStatus(tx, p.subscriptionId, p.status, p.endsBeforeNextPayment, p.at);
       return "processed";
     case "charge_refunded":
       await chargeRefunded(tx, p.charge);
@@ -261,6 +298,7 @@ async function checkoutPaid(tx: Tx, p: Extract<Prepared, { kind: "checkout_paid"
         effects.membershipIds.push(membership.id);
       } else {
         await tx.update(memberships).set({ status: "cancelled" }).where(eq(memberships.id, membership.id));
+        if (fee && fee.refundPendingCents + fee.refundedCents >= fee.amountCents) effects.feeReturnedMembershipIds.push(membership.id);
       }
     }
   }
@@ -310,7 +348,13 @@ async function checkoutAbandoned(tx: Tx, session: Stripe.Checkout.Session) {
     .where(and(eq(orders.stripeCheckoutSessionId, session.id), eq(orders.status, "pending_payment")));
 }
 
-/** Each monthly payment is recorded as a contribution per slate. */
+/**
+ * Each monthly payment is recorded as a contribution per slate, for what the
+ * invoice actually collected: the gift's amounts when it was paid in full,
+ * shared out in proportion when a coupon or credit made it less (or a
+ * dashboard price change more). An invoice that collected nothing records
+ * nothing.
+ */
 async function invoicePaid(tx: Tx, p: Extract<Prepared, { kind: "invoice_paid" }>, effects: Effects) {
   const { invoice, subscriptionId, giftId, paymentIntentId, paidAt } = p;
   const gift = giftId
@@ -332,16 +376,19 @@ async function invoicePaid(tx: Tx, p: Extract<Prepared, { kind: "invoice_paid" }
     await tx.update(recurringDonations).set({ stripeSubscriptionId: subscriptionId }).where(eq(recurringDonations.id, gift.id));
   }
 
+  const amounts = typeof invoice.amount_paid === "number" ? allocatePayment(gift.slateAmounts, invoice.amount_paid) : gift.slateAmounts;
+  const slates = SLATES.filter((slate) => (amounts[slate] ?? 0) > 0);
+  if (slates.length === 0) return;
   const rows = await tx
     .insert(contributions)
     .values(
-      (Object.keys(gift.slateAmounts) as Slate[]).map((slate) => ({
+      slates.map((slate) => ({
         personId: gift.personId,
         kind: "donation" as const,
         frequency: "monthly" as const,
         slate,
         fund: "imagine_victory_fund",
-        amountCents: gift.slateAmounts[slate]!,
+        amountCents: amounts[slate]!,
         status: "succeeded" as const,
         paidAt,
         contributorName: gift.contributorName,
@@ -395,9 +442,14 @@ async function enforceLimit(tx: Tx, rows: Contribution[], paidAt: Date): Promise
   return pending;
 }
 
-/** A subscription Stripe has stopped (or resumed) collecting on. */
-async function subscriptionStatus(tx: Tx, subscriptionId: string, status: string, at: Date) {
-  const next = recurringStatusFor(status);
+/**
+ * A subscription Stripe has stopped (or resumed) collecting on, or that will
+ * take no further payment. A gift is made active again only by an event newer
+ * than its cancellation, so a stale update Stripe delivers late can't revive
+ * a gift that has since ended.
+ */
+async function subscriptionStatus(tx: Tx, subscriptionId: string, status: string, endsBeforeNextPayment: boolean, at: Date) {
+  const next = recurringStatusFor(status, endsBeforeNextPayment);
   if (next === "cancelled") {
     await tx
       .update(recurringDonations)
@@ -407,34 +459,26 @@ async function subscriptionStatus(tx: Tx, subscriptionId: string, status: string
     await tx
       .update(recurringDonations)
       .set({ status: "active", cancelledAt: null })
-      .where(and(eq(recurringDonations.stripeSubscriptionId, subscriptionId), eq(recurringDonations.status, "cancelled")));
+      .where(
+        and(
+          eq(recurringDonations.stripeSubscriptionId, subscriptionId),
+          eq(recurringDonations.status, "cancelled"),
+          or(isNull(recurringDonations.cancelledAt), lte(recurringDonations.cancelledAt, at)),
+        ),
+      );
   }
 }
 
 /**
- * A refund issued from the Stripe dashboard, in full or in part. Our rows for
- * the payment are brought into line with the charge's refunded total.
+ * A refund on one of our payments, from the dashboard or our own, in full or
+ * in part. Our rows for the payment are brought into line with the charge's
+ * refunded total, which also settles any refund we had decided on that an
+ * operator returned by hand (so it is never sent again).
  */
 async function chargeRefunded(tx: Tx, charge: Stripe.Charge) {
   const paymentIntentId = idOf(charge.payment_intent);
   if (!paymentIntentId) return;
-  const rows = await tx.query.contributions.findMany({
-    where: and(eq(contributions.stripePaymentIntentId, paymentIntentId), inArray(contributions.status, ["succeeded", "refunded", "refunded_over_limit"])),
-  });
-  const changes = allocateRefund(rows, charge.amount_refunded);
-  for (const change of changes) {
-    await tx
-      .update(contributions)
-      .set({ refundedCents: change.refundedCents, ...(change.fullyRefunded ? { status: "refunded" as const } : {}) })
-      .where(eq(contributions.id, change.id));
-    const row = rows.find((r) => r.id === change.id);
-    if (change.fullyRefunded && row?.kind === "membership_fee" && row.stripeCheckoutSessionId) {
-      await tx
-        .update(memberships)
-        .set({ status: "cancelled" })
-        .where(and(eq(memberships.stripeCheckoutSessionId, row.stripeCheckoutSessionId), ne(memberships.status, "cancelled")));
-    }
-  }
+  await reconcileRefunds(tx, paymentIntentId, charge.amount_refunded);
   if (charge.amount_refunded >= charge.amount) {
     await tx.update(orders).set({ status: "refunded" }).where(eq(orders.stripePaymentIntentId, paymentIntentId));
   }
@@ -452,7 +496,23 @@ async function notify(db: Db, effects: Effects) {
     }
   };
   for (const membershipId of effects.membershipIds) await run("Membership", () => notifyMembershipActive(db, { membershipId }));
+  for (const membershipId of effects.feeReturnedMembershipIds) await run("Membership fee returned", () => tellFeeReturned(db, membershipId));
   if (effects.contributionIds.length) await run("Donation", () => notifyDonationSucceeded(db, { contributionIds: effects.contributionIds }));
   for (const recurringDonationId of effects.recurringIds) await run("Recurring gift", () => notifyRecurringStarted(db, { recurringDonationId }));
   for (const orderId of effects.orderIds) await run("Order", () => notifyOrderPaid(db, { orderId }));
+}
+
+/**
+ * The membership form gives everyone the same answer, so a fee over the
+ * contribution limit is only found out once it is paid: it goes back, the
+ * membership is cancelled, and only the person who paid is told why.
+ */
+async function tellFeeReturned(db: Db, membershipId: string) {
+  const membership = await db.query.memberships.findFirst({ where: eq(memberships.id, membershipId), columns: { personId: true } });
+  if (!membership) return;
+  const person = await db.query.people.findFirst({ where: eq(people.id, membership.personId), columns: { email: true, firstName: true } });
+  if (!person?.email) return;
+  const { org } = await getSettings();
+  const message = membershipFeeReturnedEmail({ siteUrl: env.siteUrl, orgName: org.name, orgEmail: org.email }, { firstName: person.firstName ?? "" });
+  await sendEmail(db, { to: person.email, kind: "membership-fee-limit", personId: membership.personId, ...message });
 }

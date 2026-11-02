@@ -2,16 +2,20 @@
 // suite can run without a Stripe account. Point the site at it with
 // STRIPE_API_BASE=http://localhost:<port>.
 //
-// Besides the Stripe endpoints it has two test-only ones: GET /__log lists
-// every call made to it, and POST /__objects (JSON) registers an invoice or
-// subscription for the site to retrieve by id.
+// Besides the Stripe endpoints it has three test-only ones: GET /__log lists
+// every call made to it; POST /__objects (JSON) registers an invoice or
+// subscription for the site to retrieve by id, or a refund (as if made from
+// the dashboard) for GET /v1/refunds to list; POST /__refunds {"fail":true}
+// makes POST /v1/refunds fail like an outage until {"fail":false}.
 import http from "node:http";
 
 const port = Number(process.env.PORT ?? 12111);
 const sessions = new Map();
 const objects = new Map();
+const refunds = [];
 const calls = [];
 let n = 0;
+let refundsFail = false;
 
 function parseForm(body) {
   const out = {};
@@ -44,6 +48,11 @@ http
       if (url.pathname === "/__log") return send(calls);
       if (req.method === "POST" && url.pathname === "/__objects") {
         objects.set(params.id, params);
+        if (params.object === "refund") refunds.push({ status: "succeeded", metadata: {}, ...params });
+        return send({ ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/__refunds") {
+        refundsFail = params.fail === true;
         return send({ ok: true });
       }
 
@@ -68,7 +77,19 @@ http
         const o = objects.get(m[2]);
         return o ? send(o) : notFound(m[1].slice(0, -1));
       }
-      if (url.pathname === "/v1/refunds") return send({ id: `re_${++n}`, object: "refund", amount: Number(params.amount), payment_intent: params.payment_intent });
+      if (req.method === "GET" && url.pathname === "/v1/refunds") {
+        const pi = url.searchParams.get("payment_intent");
+        return send({ object: "list", has_more: false, data: refunds.filter((r) => !pi || r.payment_intent === pi) });
+      }
+      if (url.pathname === "/v1/refunds") {
+        if (refundsFail) {
+          res.writeHead(503, { "content-type": "application/json", "stripe-should-retry": "false" });
+          return res.end(JSON.stringify({ error: { type: "api_error", message: "Simulated outage" } }));
+        }
+        const refund = { id: `re_${++n}`, object: "refund", status: "succeeded", amount: Number(params.amount), payment_intent: params.payment_intent, metadata: params.metadata ?? {} };
+        refunds.push(refund);
+        return send(refund);
+      }
       if (url.pathname === "/v1/invoice_payments") {
         return send({
           object: "list",

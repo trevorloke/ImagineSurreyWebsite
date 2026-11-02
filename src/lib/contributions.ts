@@ -149,8 +149,10 @@ export interface RefundableRow {
   slate: Slate;
   amountCents: number;
   refundedCents: number;
-  /** Decided by the webhook but not yet sent to Stripe; counts as already returned. */
+  /** Decided by the webhook but not yet confirmed by Stripe. */
   refundPendingCents?: number;
+  /** Refunds Stripe lists for this very row (by the contribution id in their metadata). */
+  confirmedCents?: number;
   createdAt?: Date;
 }
 
@@ -158,45 +160,95 @@ export interface RefundChange {
   id: string;
   /** The row's new refunded total. */
   refundedCents: number;
+  /** What the row still waits to send Stripe, after what Stripe has returned is counted. */
+  refundPendingCents: number;
   /** True once nothing of the row is left with us. */
   fullyRefunded: boolean;
+  /**
+   * The status a fully refunded row takes: refunded_over_limit when the
+   * refund we decided on completed it, refunded when a dashboard refund did.
+   */
+  status: "refunded" | "refunded_over_limit" | null;
 }
 
 /**
  * Reconcile our rows for one payment with what Stripe says has been refunded
- * on its charge, so that the rows' refunded totals add up to Stripe's figure.
- * Any new amount is spread across the rows council first, each taking what it
- * has room for. Amounts our own over-limit refunds are about to return count
- * as returned already, so their charge.refunded event changes nothing.
- * Returns only the rows that change.
+ * on it, so that the rows' refunded totals add up to Stripe's figure. Money
+ * Stripe has returned beyond what we recorded first settles the refunds we
+ * had decided on but not yet confirmed (a refund of ours that went through
+ * unrecorded, or an operator returning the same money from the dashboard),
+ * refunds Stripe attributes to a row before anything else and council
+ * first; only what is left is a dashboard refund, taken off each row's
+ * remaining balance council first. Returns only the rows that change.
  */
 export function allocateRefund(rows: RefundableRow[], amountRefundedCents: number): RefundChange[] {
-  const accounted = rows.reduce((sum, r) => sum + r.refundedCents + (r.refundPendingCents ?? 0), 0);
-  let delta = amountRefundedCents - accounted;
-  const changes: RefundChange[] = [];
-  if (delta <= 0) return changes;
+  const recorded = rows.reduce((sum, r) => sum + r.refundedCents, 0);
+  let delta = amountRefundedCents - recorded;
+  if (delta <= 0) return [];
   const ordered = [...rows].sort(
     (a, b) => SLATES.indexOf(a.slate) - SLATES.indexOf(b.slate) || (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0),
   );
+  const state = new Map<string, { refunded: number; pending: number; dashboard: boolean }>();
+  const of = (row: RefundableRow) => state.get(row.id) ?? { refunded: row.refundedCents, pending: row.refundPendingCents ?? 0, dashboard: false };
+  const settle = (row: RefundableRow, upTo: number) => {
+    const s = of(row);
+    const take = Math.min(s.pending, upTo, delta);
+    if (take <= 0) return;
+    s.pending -= take;
+    s.refunded += take;
+    delta -= take;
+    state.set(row.id, s);
+  };
+  for (const row of ordered) settle(row, row.confirmedCents ?? 0);
+  for (const row of ordered) settle(row, Infinity);
   for (const row of ordered) {
     if (delta <= 0) break;
-    const room = row.amountCents - row.refundedCents - (row.refundPendingCents ?? 0);
+    const s = of(row);
+    const room = row.amountCents - s.refunded - s.pending;
     if (room <= 0) continue;
     const take = Math.min(room, delta);
+    s.refunded += take;
+    s.dashboard = true;
     delta -= take;
-    const refundedCents = row.refundedCents + take;
-    changes.push({ id: row.id, refundedCents, fullyRefunded: refundedCents >= row.amountCents });
+    state.set(row.id, s);
   }
-  return changes;
+  return ordered
+    .filter((row) => state.has(row.id))
+    .map((row) => {
+      const s = state.get(row.id)!;
+      const fullyRefunded = s.refunded >= row.amountCents;
+      return {
+        id: row.id,
+        refundedCents: s.refunded,
+        refundPendingCents: s.pending,
+        fullyRefunded,
+        status: fullyRefunded ? (s.dashboard ? "refunded" : "refunded_over_limit") : null,
+      };
+    });
+}
+
+/**
+ * Whether a subscription will take no further payment: the donor has set it
+ * to cancel at the end of the period already paid for, or Stripe will cancel
+ * it (cancel_at) on or before the date its next payment is due. A cancel_at
+ * further out still lets the payments before it happen, so the gift keeps
+ * reserving room (the webhook backstop returns anything that turns out over
+ * the limit). `periodEnd` is when the next payment is due, in seconds.
+ */
+export function subscriptionEndsBeforeNextPayment(s: { cancelAtPeriodEnd?: boolean | null; cancelAt?: number | null; periodEnd?: number | null }): boolean {
+  if (s.cancelAtPeriodEnd) return true;
+  return typeof s.cancelAt === "number" && typeof s.periodEnd === "number" && s.cancelAt <= s.periodEnd;
 }
 
 /**
  * What a Stripe subscription status means for a recurring gift. Stripe stops
  * collecting on canceled, unpaid and paused subscriptions, so they must stop
- * reserving the donor's limit; past_due keeps retrying and stays active.
- * Null means leave the gift as it is.
+ * reserving the donor's limit; so must one that ends before its next payment
+ * (see subscriptionEndsBeforeNextPayment), since no further payment will
+ * come, and taking that back makes it active again. past_due keeps retrying
+ * and stays active. Null means leave the gift as it is.
  */
-export function recurringStatusFor(stripeStatus: string): "active" | "cancelled" | null {
+export function recurringStatusFor(stripeStatus: string, endsBeforeNextPayment = false): "active" | "cancelled" | null {
   switch (stripeStatus) {
     case "canceled":
     case "unpaid":
@@ -205,10 +257,37 @@ export function recurringStatusFor(stripeStatus: string): "active" | "cancelled"
       return "cancelled";
     case "active":
     case "trialing":
-      return "active";
+    case "past_due":
+      return endsBeforeNextPayment ? "cancelled" : "active";
     default:
       return null;
   }
+}
+
+/**
+ * What one monthly payment actually brought in, per slate. The gift's slate
+ * amounts are what was asked for; a coupon, credit or price change in the
+ * Stripe dashboard can make the invoice's amount_paid differ, and only money
+ * received may be recorded. The amount paid is shared in proportion to the
+ * gift's amounts, rounding down, and the cents left by rounding go to the
+ * council slate first. Slates that come to nothing are left out.
+ */
+export function allocatePayment(configured: SlateAmounts, paidCents: number): SlateAmounts {
+  const slates = SLATES.filter((slate) => (configured[slate] ?? 0) > 0);
+  const total = slates.reduce((sum, slate) => sum + configured[slate]!, 0);
+  const paid = Math.max(0, Math.floor(paidCents));
+  if (total <= 0 || paid <= 0) return {};
+  if (paid === total) return Object.fromEntries(slates.map((slate) => [slate, configured[slate]!]));
+  const shares = new Map(slates.map((slate) => [slate, Math.floor((paid * configured[slate]!) / total)]));
+  let left = paid - [...shares.values()].reduce((a, b) => a + b, 0);
+  for (const slate of slates) {
+    if (left <= 0) break;
+    shares.set(slate, shares.get(slate)! + 1);
+    left -= 1;
+  }
+  const out: SlateAmounts = {};
+  for (const slate of slates) if (shares.get(slate)! > 0) out[slate] = shares.get(slate)!;
+  return out;
 }
 
 export function addYear(date: Date): Date {

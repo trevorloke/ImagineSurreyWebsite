@@ -240,9 +240,13 @@ export async function createDonationCheckout(db: Db, input: z.output<typeof dona
 // ── Memberships ────────────────────────────────────────────────────────────
 
 /**
- * The only two answers the membership form gets. Neither says whether the
- * email already belongs to a member: that would tell anyone who typed an
- * address which party its owner supports.
+ * The only two answers the membership form gets: "received" when there is no
+ * fee, otherwise a checkout for the fee, whoever the email belongs to.
+ * Neither says whether the email already belongs to a member, nor whether its
+ * owner has given close to the contribution limit: either would tell anyone
+ * who typed an address which party its owner supports. So a fee is never
+ * refused up front for being over the limit; if one that is gets paid, the
+ * webhook returns it, cancels the membership and emails the payer why.
  */
 export type MembershipResult = { status: "checkout"; url: string } | { status: "received" };
 
@@ -335,16 +339,10 @@ export async function createMembership(db: Db, input: z.output<typeof membership
     return { status: "received" };
   }
 
+  // No limit check here (see MembershipResult): the webhook's backstop, under
+  // the same person lock, returns a fee that turns out to be over the limit.
   const { membership, contribution } = await db.transaction(async (tx) => {
     await lockPerson(tx, person.id);
-    try {
-      await assertWithinLimit(tx, person.id, "one_time", { council: feeCents });
-    } catch (err) {
-      if (!(err instanceof UserFacingError)) throw err;
-      throw new UserFacingError(
-        "Under BC's contribution limit we can't take a membership fee from you this year. Email hello@imaginesurrey.ca and we'll sort out your membership.",
-      );
-    }
     const [membership] = await tx.insert(memberships).values(snapshot).returning({ id: memberships.id });
     const [contribution] = await tx
       .insert(contributions)
@@ -363,6 +361,7 @@ export async function createMembership(db: Db, input: z.output<typeof membership
       .returning({ id: contributions.id });
     return { membership, contribution };
   });
+
 
   const metadata = { type: "membership", membershipId: membership.id, personId: person.id };
   let session: Stripe.Checkout.Session;
