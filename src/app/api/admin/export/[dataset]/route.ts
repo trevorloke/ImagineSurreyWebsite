@@ -25,8 +25,9 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/admin/export
 
   if (dataset === "people") {
     if (!can(auth.user, "people")) return error("Your role can't export that.", 403);
-    const query = parsePeopleQuery(sp);
-    const stream = await csvStream(db, supportersExportQuery(query));
+    const money = can(auth.user, "money");
+    const query = parsePeopleQuery(sp, { money });
+    const stream = await csvStream(db, supportersExportQuery(query, { money }));
     await audit(auth.user, "export", { dataset: "people", filters: describeQuery(query) });
     return csvResponse(stream, "supporters");
   }

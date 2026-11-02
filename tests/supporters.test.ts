@@ -8,10 +8,16 @@ const { describeUserAgent, generatePassword, parseAuditFilters } = await import(
 
 describe("supporter list query", () => {
   it("reads every filter from the URL and ignores junk", () => {
-    const q = parsePeopleQuery({ q: "  asha   singh ", membership: "active", neighbourhood: "Newton", volunteer: "1", tag: "canvasser", newsletter: "bogus", sms: "yes", donated: "on", language: "Punjabi", sort: "name", page: "3" });
+    const q = parsePeopleQuery({ q: "  asha   singh ", membership: "active", neighbourhood: "Newton", volunteer: "1", tag: "canvasser", newsletter: "bogus", sms: "yes", donated: "on", language: "Punjabi", sort: "name", page: "3" }, { money: true });
     expect(q).toMatchObject({ q: "asha singh", membership: "active", neighbourhood: "Newton", volunteer: true, lawnsign: false, tag: "canvasser", newsletter: "", sms: "yes", donated: true, language: "Punjabi", sort: "name", page: 3 });
     expect(parsePeopleQuery({ page: "-2", sort: ["email", "name"] })).toMatchObject({ page: 1, sort: "email" });
     expect(parsePeopleQuery(new URLSearchParams("q=x&membership=none"))).toMatchObject({ q: "x", membership: "none" });
+  });
+
+  it("drops the donor filter for anyone without the money permission", () => {
+    expect(parsePeopleQuery({ donated: "1" }).donated).toBe(false);
+    expect(parsePeopleQuery({ donated: "1" }, { money: false }).donated).toBe(false);
+    expect(parsePeopleQuery({ donated: "1" }, { money: true }).donated).toBe(true);
   });
 
   it("round-trips through the URL and leaves defaults out", () => {

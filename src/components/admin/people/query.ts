@@ -100,8 +100,13 @@ const oneOf = <T extends string>(value: string, allowed: readonly { id: T }[]): 
 const flag = (value: string) => value === "1" || value === "on" || value === "true";
 const text = (value: string, max: number) => value.trim().replace(/\s+/g, " ").slice(0, max);
 
-/** Read a list view from search params; anything unexpected falls back to the default. */
-export function parsePeopleQuery(sp: Params): PeopleQuery {
+/**
+ * Read a list view from search params; anything unexpected falls back to the
+ * default. The "donated this year" filter is money data: it is read only when
+ * the viewer has the money permission, so nobody can list donors through the
+ * URL (or a bulk action or export carrying the same query) without it.
+ */
+export function parsePeopleQuery(sp: Params, options: { money: boolean } = { money: false }): PeopleQuery {
   const page = Number.parseInt(read(sp, "page"), 10);
   return {
     q: text(read(sp, "q"), MAX_QUERY_LENGTH),
@@ -113,7 +118,7 @@ export function parsePeopleQuery(sp: Params): PeopleQuery {
     source: text(read(sp, "source"), 80),
     newsletter: oneOf(read(sp, "newsletter"), NEWSLETTER_FILTERS),
     sms: oneOf(read(sp, "sms"), SMS_FILTERS),
-    donated: flag(read(sp, "donated")),
+    donated: options.money && flag(read(sp, "donated")),
     language: text(read(sp, "language"), 40),
     sort: oneOf(read(sp, "sort"), SORTS),
     page: Number.isFinite(page) && page > 0 ? Math.min(page, 100_000) : 1,
