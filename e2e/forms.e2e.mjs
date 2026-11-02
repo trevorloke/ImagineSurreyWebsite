@@ -240,7 +240,9 @@ await go(page, BASE + "/shop");
 await page.locator('button[aria-label="Add one Stop Doug lawn sign"]').click();
 await page.locator('button[aria-label="Add one Stop Doug lawn sign"]').click();
 ok((await page.locator("#qty-stop-doug-lawn-sign").inputValue()) === "2", "quantity input is labelled and reflects the buttons");
-ok((await page.locator('[aria-live="polite"]').first().textContent()).includes("2 items in your cart, total $40"), "cart total is announced");
+// The announcement is set in an effect after the render, so wait for it rather than reading at once.
+const announced = await page.locator('[aria-live="polite"]', { hasText: "2 items in your cart, total $40" }).first().waitFor({ timeout: 5000 }).then(() => true, () => false);
+ok(announced, "cart total is announced");
 await page.locator("button", { hasText: "View cart" }).click();
 await page.locator("dialog[open]").waitFor();
 ok((await page.locator("dialog[open]").getAttribute("aria-modal")) === "true" && (await page.locator("dialog[open] .cart-line").count()) === 1, "cart drawer opens as a modal dialog");
