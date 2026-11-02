@@ -22,11 +22,7 @@ export type ConsentInput = {
   userAgent?: string | null;
 };
 
-/** Wording shown next to the consent tick boxes, kept here so the ledger stores the version people actually saw. */
-export const CONSENT_WORDING = {
-  updates: "Yes, Imagine Surrey can email me news and ways to help. I can unsubscribe at any time.",
-  sms: "Yes, Imagine Surrey can text me about events and volunteering. Reply STOP at any time. Message and data rates may apply.",
-} as const;
+export { CONSENT_WORDING } from "@/lib/consent-wording";
 
 /**
  * Append one consent event and keep the person's current-state columns in step:
