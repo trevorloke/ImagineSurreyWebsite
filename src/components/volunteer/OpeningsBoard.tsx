@@ -124,6 +124,20 @@ function OpeningCard({
     if (confirmation) confirmRef.current?.focus();
   }, [confirmation]);
 
+  // Cancelling the form puts focus back on the button that opened it.
+  const signUpRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (!formOpen && returnFocus.current) {
+      returnFocus.current = false;
+      signUpRef.current?.focus();
+    }
+  }, [formOpen]);
+  const cancel = () => {
+    returnFocus.current = true;
+    onToggle();
+  };
+
   const slot = SLOT_BY_ID[o.slot];
   const { date: dayLabel } = formatDay(o.date);
   const [mon, day] = dayLabel.replace(".", "").split(" ");
@@ -178,11 +192,11 @@ function OpeningCard({
         ) : (
           <>
             {!formOpen && (
-              <button type="button" className="btn btn--red" style={{ alignSelf: "flex-start" }} onClick={onToggle}>
+              <button ref={signUpRef} type="button" className="btn btn--red" style={{ alignSelf: "flex-start" }} onClick={onToggle}>
                 Sign up<span className="visually-hidden"> for {o.title}</span>
               </button>
             )}
-            {formOpen && <SignupForm opening={o} onDone={onDone} onCancel={onToggle} />}
+            {formOpen && <SignupForm opening={o} onDone={onDone} onCancel={cancel} />}
           </>
         )}
       </div>
