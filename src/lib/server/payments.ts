@@ -1,6 +1,5 @@
 import "server-only";
 import { and, eq, gt, inArray } from "drizzle-orm";
-import { NextRequest } from "next/server";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { contributions, memberships, orderItems, orders, people, products, recurringDonations } from "@/lib/db/schema";
@@ -14,56 +13,81 @@ import { assertWithinLimit, lockPerson, SLATE_LABEL, UserFacingError, type Queri
 import { notifyMembershipActive } from "./notifications";
 import { findOrCreatePerson, type Person } from "./people";
 import { subscribe } from "./newsletter";
+import { trackingFromRequest, type Tracking } from "./attribution";
+import { CONSENT_WORDING, consentMeta, recordConsent } from "./consent";
 
-export { contributionRoom, UserFacingError } from "./limits";
+export { contributionRoom, contributionTotals, UserFacingError } from "./limits";
 export { addYear } from "@/lib/contributions";
 
 // Stripe's minimum Checkout lifetime is 30 minutes, measured when the request
 // arrives, so a little slack keeps a slow request from being refused.
 const CHECKOUT_TTL_MINUTES = 35;
 
-// ── Public form extras ─────────────────────────────────────────────────────
-
-/** Optional hints a public form may send beside its validated fields. */
-export interface PublicFormExtras {
-  /** Where the person came from: a flyer, a campaign page, a share link. */
-  source?: string;
-  /** The referral code of the supporter who sent them. */
-  ref?: string;
-}
-
-const extrasSchema = z.looseObject({
-  source: z.string().trim().min(1).max(40).optional(),
-  ref: z.string().trim().min(1).max(12).optional(),
-});
-
-const FORWARDED_HEADERS = ["content-type", "x-forwarded-for", "x-real-ip"];
+// ── Public form context ────────────────────────────────────────────────────
 
 /**
- * Take `source` and `ref` off a JSON body before the strict form schema sees
- * it, and hand back a request that parseBody can validate as usual. A body
- * that isn't a JSON object is passed through so parseBody reports it.
+ * What a public form's request carries besides its fields: where the visit
+ * came from and who referred it (body fields first, then the tracking
+ * cookie), and the request details the consent ledger keeps as proof.
  */
-export async function splitPublicFormExtras(req: NextRequest): Promise<{ request: NextRequest; extras: PublicFormExtras }> {
-  const headers = new Headers();
-  for (const name of FORWARDED_HEADERS) {
-    const value = req.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  const rebuild = (body: string) => new NextRequest(req.url, { method: req.method, headers, body });
+export interface PublicFormContext {
+  tracking?: Tracking;
+  meta?: { ip: string | null; userAgent: string | null };
+}
 
-  let raw: unknown;
-  try {
-    raw = await req.json();
-  } catch {
-    return { request: rebuild(""), extras: {} };
-  }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { request: rebuild(JSON.stringify(raw)), extras: {} };
+export function publicFormContext(req: Request, body: { source?: unknown; ref?: unknown }): PublicFormContext {
+  return { tracking: trackingFromRequest(req, body), meta: consentMeta(req) };
+}
 
-  const { source, ref, ...rest } = raw as Record<string, unknown>;
-  const parsed = extrasSchema.safeParse({ source, ref });
-  const extras: PublicFormExtras = parsed.success ? { source: parsed.data.source, ref: parsed.data.ref } : {};
-  return { request: rebuild(JSON.stringify(rest)), extras };
+/**
+ * The donate form's newsletter tick, word for word as the form shows it
+ * (src/components/forms/DonateForm.tsx), for the consent ledger.
+ */
+export const DONATION_NEWSLETTER_WORDING = "Send me the Imagine Surrey newsletter. I can unsubscribe at any time.";
+
+/**
+ * Express consent from a public form's own ticks, and nothing without them:
+ * each tick is written to the consent ledger with the wording the person saw
+ * (which also sets the person's consent columns), and an email tick
+ * subscribes them. A text tick counts only with a phone number typed on this
+ * same form, never one stored from before.
+ */
+async function recordFormConsent(
+  db: Db,
+  person: Person,
+  ctx: PublicFormContext,
+  consent: {
+    source: string;
+    email?: { purpose: "updates" | "newsletter"; wording: string; subscribeAs: string } | null;
+    sms?: { phone: string | undefined } | null;
+  },
+) {
+  const meta = ctx.meta ?? { ip: null, userAgent: null };
+  if (consent.email) {
+    await recordConsent(db, {
+      personId: person.id,
+      email: person.email,
+      channel: "email",
+      purpose: consent.email.purpose,
+      action: "grant",
+      wording: consent.email.wording,
+      source: consent.source,
+      ...meta,
+    });
+    await subscribe(db, person.email, consent.email.subscribeAs, person.id);
+  }
+  if (consent.sms && consent.sms.phone?.trim()) {
+    await recordConsent(db, {
+      personId: person.id,
+      email: person.email,
+      channel: "sms",
+      purpose: "sms",
+      action: "grant",
+      wording: CONSENT_WORDING.sms,
+      source: consent.source,
+      ...meta,
+    });
+  }
 }
 
 // ── Stripe customers ───────────────────────────────────────────────────────
@@ -120,7 +144,7 @@ function checkoutBase() {
 
 // ── Donations ──────────────────────────────────────────────────────────────
 
-export async function createDonationCheckout(db: Db, input: z.output<typeof donationSchema>, extras: PublicFormExtras = {}) {
+export async function createDonationCheckout(db: Db, input: z.output<typeof donationSchema>, ctx: PublicFormContext = {}) {
   const limitCents = env.contributionLimitCents;
   if (input.tier === "standard" && input.amountCents < MIN_DONATION_CENTS) {
     throw new UserFacingError(`The smallest contribution we can take online is ${formatCents(MIN_DONATION_CENTS)}.`);
@@ -139,10 +163,13 @@ export async function createDonationCheckout(db: Db, input: z.output<typeof dona
       city: input.city,
       province: "BC",
       postalCode,
-      ...(input.newsletter ? { contactConsentAt: new Date() } : {}),
     },
-    { source: extras.source ?? "donation", referredByCode: extras.ref },
+    { source: ctx.tracking?.source ?? "donation", referredByCode: ctx.tracking?.ref },
   );
+  await recordFormConsent(db, person, ctx, {
+    source: "donation-form",
+    email: input.newsletter ? { purpose: "newsletter", wording: DONATION_NEWSLETTER_WORDING, subscribeAs: "donation" } : null,
+  });
 
   const snapshot = {
     personId: person.id,
@@ -164,7 +191,6 @@ export async function createDonationCheckout(db: Db, input: z.output<typeof dona
       const [row] = await tx.insert(recurringDonations).values({ ...snapshot, slateAmounts }).returning();
       return row;
     });
-    if (input.newsletter) await subscribe(db, person.email, "donation", person.id);
 
     const metadata = { type: "recurring_donation", recurringDonationId: gift.id, personId: person.id };
     let session: Stripe.Checkout.Session;
@@ -206,7 +232,6 @@ export async function createDonationCheckout(db: Db, input: z.output<typeof dona
       .values(slates.map((slate) => ({ ...snapshot, kind: "donation" as const, frequency: "one_time" as const, slate, amountCents: slateAmounts[slate]! })))
       .returning({ id: contributions.id });
   });
-  if (input.newsletter) await subscribe(db, person.email, "donation", person.id);
 
   const ids = rows.map((r) => r.id);
   const metadata = { type: "donation", personId: person.id };
@@ -260,7 +285,7 @@ export async function latestActiveMembershipExpiry(q: Querier, personId: string,
   return latest?.expiresAt ?? null;
 }
 
-export async function createMembership(db: Db, input: z.output<typeof membershipSchema>, extras: PublicFormExtras = {}): Promise<MembershipResult> {
+export async function createMembership(db: Db, input: z.output<typeof membershipSchema>, ctx: PublicFormContext = {}): Promise<MembershipResult> {
   const feeCents = env.membershipFeeCents;
   const age = ageOn(input.birthdate, new Date());
   if (age === undefined || age < MIN_MEMBER_AGE) {
@@ -301,11 +326,16 @@ export async function createMembership(db: Db, input: z.output<typeof membership
       issue: input.issue,
       interestVolunteer: input.interestVolunteer,
       interestLawnSign: input.interestLawnSign,
-      contactConsentAt: new Date(),
+      locale: input.locale,
     },
-    { source: extras.source ?? "membership", referredByCode: extras.ref },
+    { source: ctx.tracking?.source ?? "membership", referredByCode: ctx.tracking?.ref },
   );
-  await subscribe(db, person.email, "membership", person.id);
+  // Joining is not consent to marketing: only the form's own unticked boxes are.
+  await recordFormConsent(db, person, ctx, {
+    source: "membership-form",
+    email: input.updatesConsent ? { purpose: "updates", wording: CONSENT_WORDING.updates, subscribeAs: "membership" } : null,
+    sms: input.smsConsent ? { phone: input.phone } : null,
+  });
 
   const votingEligible = input.neighbourhood !== OUTSIDE_SURREY && input.city.trim().toLowerCase() === "surrey";
   // The details as given on this form, kept with the membership for the voting roll.

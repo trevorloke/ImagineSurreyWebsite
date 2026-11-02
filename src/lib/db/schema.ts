@@ -744,3 +744,33 @@ export const smsLog = pgTable(
   },
   (t) => [index("sms_log_status_idx").on(t.status, t.createdAt)],
 ).enableRLS();
+
+// ── Consent ledger ────────────────────────────────────────────────────────
+// Append-only proof of consent for CASL and BC PIPA: one row every time a
+// person grants or withdraws permission for a channel and purpose, with the
+// wording they saw. people.contactConsentAt and people.smsConsentAt stay as
+// the current state; this table is the evidence behind them.
+export const consentEvents = pgTable(
+  "consent_events",
+  {
+    id: id(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    email: text("email").notNull(),
+    // email | sms
+    channel: text("channel").notNull(),
+    // newsletter | updates | sms | fundraising | volunteer
+    purpose: text("purpose").notNull(),
+    // grant | withdraw
+    action: text("action").notNull(),
+    // express | implied-member | implied-donor | implied-volunteer
+    basis: text("basis").notNull().default("express"),
+    // The exact checkbox or confirmation wording the person saw.
+    wording: text("wording"),
+    // Which form or process recorded it: membership-form, petition:<slug>, preferences, sms-stop, …
+    source: text("source"),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("consent_events_person_idx").on(t.personId, t.createdAt), index("consent_events_email_idx").on(t.email, t.createdAt)],
+).enableRLS();

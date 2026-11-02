@@ -36,6 +36,13 @@
       "when": 1793602076183,
       "tag": "0004_admin_cms_comms",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793603695550,
+      "tag": "0005_consent_ledger",
+      "breakpoints": true
     }
   ]
 }

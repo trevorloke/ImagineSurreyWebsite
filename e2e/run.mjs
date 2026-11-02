@@ -14,7 +14,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const dbUrl = process.env.E2E_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/imagine_surrey_e2e";
 const port = Number(process.env.E2E_PORT ?? 3100);
 const stripePort = Number(process.env.E2E_STRIPE_PORT ?? 12111);
-const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker"];
+const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms"];
 
 const env = {
   ...process.env,
@@ -28,6 +28,7 @@ const env = {
   STRIPE_API_BASE: `http://localhost:${stripePort}`,
   CONTRIBUTION_LIMIT_CENTS: "142970",
   MEMBERSHIP_FEE_CENTS: "1000",
+  ADMIN_EMAIL: "admin@example.com",
   ADMIN_PASSWORD: "local-admin-pw",
   ADMIN_SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
   NODE_ENV: "production",
@@ -56,7 +57,8 @@ if (!process.env.E2E_SKIP_BUILD || !existsSync(path.join(root, ".next", "BUILD_I
 
 const children = [];
 const start = (cmd, args, extraEnv = {}) => {
-  const child = spawn(cmd, args, { cwd: root, env: { ...env, ...extraEnv }, stdio: ["ignore", "pipe", "pipe"] });
+  // Own process group, so stopping it also stops the server npx starts.
+  const child = spawn(cmd, args, { cwd: root, env: { ...env, ...extraEnv }, stdio: ["ignore", "pipe", "pipe"], detached: true });
   child.stdout.on("data", () => {});
   child.stderr.on("data", (d) => process.stderr.write(d));
   children.push(child);
@@ -79,11 +81,29 @@ await waitFor(`http://localhost:${stripePort}/__log`);
 await waitFor(`http://localhost:${port}/`);
 
 let failed = 0;
+const resetSql = postgres(dbUrl, { max: 1, onnotice: () => {} });
 for (const suite of suites) {
   console.log(`\n▶ suite: ${suite}`);
+  // Each suite starts with the bootstrap owner only: suites test wrong
+  // passwords, invite staff and change the owner's password, and none of that
+  // may leak into the next suite. (Sign-in recreates the owner from
+  // ADMIN_EMAIL + ADMIN_PASSWORD when no staff account exists.)
+  await resetSql`delete from login_attempts`;
+  await resetSql`delete from admin_users`;
   const r = spawnSync("node", [`e2e/${suite}.e2e.mjs`], { cwd: root, env, stdio: "inherit" });
   if (r.status !== 0) failed += 1;
 }
-for (const c of children) c.kill();
+await resetSql.end();
+function stopAll() {
+  for (const c of children) {
+    try {
+      process.kill(-c.pid, "SIGTERM");
+    } catch {
+      c.kill();
+    }
+  }
+}
+process.on("exit", stopAll);
+stopAll();
 console.log(failed ? `\n${failed} suite(s) FAILED` : "\nAll e2e suites passed");
 process.exit(failed ? 1 : 0);

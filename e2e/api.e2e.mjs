@@ -96,6 +96,36 @@ ok(
 ok(Number(memParams.expires_at) - Math.floor(Date.now() / 1000) > 31 * 60, "checkout expiry leaves Stripe's 30-minute minimum some margin");
 let p = (await sql`select source, referred_by_id = (select id from people where email='news@example.com') as referred from people where email='asha@example.com'`)[0];
 ok(p.source === "flyer" && p.referred === true, "source and referral recorded on the person");
+
+// Consent to email or texts comes only from the form's own unticked boxes, recorded with the wording shown.
+const UPDATES_WORDING = "Yes, Imagine Surrey can email me news and ways to help. I can unsubscribe at any time.";
+const SMS_WORDING = "Yes, Imagine Surrey can text me about events and volunteering. Reply STOP at any time. Message and data rates may apply.";
+const consentFor = (email) => sql`select channel, purpose, action, wording, source, ip from consent_events where email=${email} order by channel`;
+const consentCols = async (email) => (await sql`select contact_consent_at, sms_consent_at from people where email=${email}`)[0];
+const subscribed = async (email) => (await sql`select count(*)::int c from newsletter_subscribers where email=${email}`)[0].c;
+let cc = await consentCols("asha@example.com");
+ok((await consentFor("asha@example.com")).length === 0 && cc.contact_consent_at === null && cc.sms_consent_at === null && (await subscribed("asha@example.com")) === 0, "joining without the ticks records no consent and subscribes no one");
+const postWith = async (path, body, headers) => {
+  const res = await fetch(BASE + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json().catch(() => null) };
+};
+r = await postWith("/api/membership", { ...member, email: "ticks@example.com", phone: "604-555-0123", updatesConsent: true, smsConsent: true, locale: "pa" }, { "x-forwarded-for": "10.77.0.1", cookie: "is_track=ref%3DABCDEF23%26source%3Dwhatsapp" });
+let ev = await consentFor("ticks@example.com");
+cc = await consentCols("ticks@example.com");
+ok(
+  r.status === 200 && r.body.status === "checkout" &&
+    ev.length === 2 &&
+    ev[0].channel === "email" && ev[0].purpose === "updates" && ev[0].action === "grant" && ev[0].wording === UPDATES_WORDING && ev[0].source === "membership-form" && ev[0].ip === "10.77.0.1" &&
+    ev[1].channel === "sms" && ev[1].purpose === "sms" && ev[1].wording === SMS_WORDING && ev[1].source === "membership-form" &&
+    cc.contact_consent_at !== null && cc.sms_consent_at !== null && (await subscribed("ticks@example.com")) === 1,
+  "the ticks are recorded in the consent ledger with their wording and request details, and the email tick subscribes",
+);
+p = (await sql`select source, referred_by_id = (select id from people where email='news@example.com') as referred from people where email='ticks@example.com'`)[0];
+ok(p.source === "whatsapp" && p.referred === true, "without ref or source in the body, the tracking cookie credits the referrer and the source");
+await sql`insert into people (email, first_name, phone) values ('stored-phone@example.com', 'Sid', '604-555-0199')`;
+r = await post("/api/membership", { ...member, email: "stored-phone@example.com", phone: "", smsConsent: true });
+ev = await consentFor("stored-phone@example.com");
+ok(r.status === 200 && ev.length === 0 && (await consentCols("stored-phone@example.com")).sms_consent_at === null, "a text tick without a phone typed on the form records nothing, even with a phone on file");
 let pendingMembership = (await sql`select status, member_name, member_address, member_city, member_postal_code, member_neighbourhood from memberships where stripe_checkout_session_id=${memSession}`)[0];
 ok(
   pendingMembership.status === "pending_payment" && pendingMembership.member_name === "Asha Singh" && pendingMembership.member_postal_code === "V3T 1V8" && pendingMembership.member_neighbourhood === "Whalley" && pendingMembership.member_city === "Surrey",
@@ -154,6 +184,16 @@ ok(r.status === 422 && r.body.fields?.postalCode, "out-of-province donor refused
 r = await post("/api/donations/checkout", { ...donor, frequency: "one_time", tier: "standard", amountCents: 5000, source: "share-link" });
 ok(r.status === 200, "one-time donation checkout");
 const donSession = sid(r.body.url);
+let rq = await post("/api/donations/checkout", { ...donor, email: "quiet-donor@example.com", newsletter: false, frequency: "one_time", tier: "standard", amountCents: 2500, ref: "ABCDEF23" });
+cc = await consentCols("quiet-donor@example.com");
+p = (await sql`select referred_by_id = (select id from people where email='news@example.com') as referred from people where email='quiet-donor@example.com'`)[0];
+ok(rq.status === 200 && cc.contact_consent_at === null && (await consentFor("quiet-donor@example.com")).length === 0 && (await subscribed("quiet-donor@example.com")) === 0 && p.referred === true, "a donation without the newsletter tick records no consent; its ref is credited");
+rq = await post("/api/donations/checkout", { ...donor, email: "keen-donor@example.com", newsletter: true, frequency: "monthly", tier: "standard", amountCents: 1000 });
+ev = await consentFor("keen-donor@example.com");
+ok(
+  rq.status === 200 && ev.length === 1 && ev[0].channel === "email" && ev[0].purpose === "newsletter" && ev[0].wording === "Send me the Imagine Surrey newsletter. I can unsubscribe at any time." && ev[0].source === "donation-form" && (await consentCols("keen-donor@example.com")).contact_consent_at !== null && (await subscribed("keen-donor@example.com")) === 1,
+  "the newsletter tick on a donation is recorded with its wording and subscribes",
+);
 const donPaidAt = Math.floor(Date.now() / 1000) - 3600;
 w = await completed(donSession, {}, { created: donPaidAt });
 c = (await sql`select status, paid_at from contributions where stripe_checkout_session_id=${donSession}`)[0];
@@ -526,6 +566,7 @@ ok(!!cookie, "admin signs in");
 const csv = await (await fetch(BASE + "/api/admin/export/contributions", { headers: { cookie } })).text();
 ok(csv.startsWith("paid_at,contributor_name") && csv.includes("membership_fee"), "contributions CSV exported");
 const dash = await (await fetch(BASE + "/admin", { headers: { cookie } })).text();
-ok(dash.includes("Active members") && dash.includes("asha@example.com"), "admin dashboard lists members");
+const activeMembers = await (await fetch(BASE + "/admin/people?membership=active", { headers: { cookie } })).text();
+ok(dash.includes("Active members") && activeMembers.includes("asha@example.com"), "admin dashboard counts members and the people list shows active ones");
 
 await finish();

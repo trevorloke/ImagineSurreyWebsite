@@ -1,11 +1,25 @@
 // The Safe Surrey Coalition 2026 promise tracker as first published, from
 // "Safe Surrey Coalition 2026 promise tracker" (October 18, 2026). `npm run
 // db:seed` loads it once; after that, statuses, updates and new rows are
-// managed in /admin/tracker and this file is not read again.
+// managed in /admin/tracker and this file is not read again. Dates and town
+// centres are given only where the document is explicit; the seed in
+// src/content/seeds/tracker.ts fills them in on databases seeded earlier.
 
 export type TrackerSource = { label: string; url?: string };
 
-export type SeedPromise = { number: number; title: string; specifics: string; area: string; sources: TrackerSource[] };
+export type SeedPromise = {
+  number: number;
+  title: string;
+  specifics: string;
+  area: string;
+  sources: TrackerSource[];
+  /** When the promise was made, where a dated launch, event, release or questionnaire states it. */
+  promisedOn?: string;
+  /** The party's own deadline, where it gave one. */
+  targetDate?: string;
+  /** Town centres named in the promise, for the neighbourhood pages. */
+  neighbourhoods?: string[];
+};
 export type SeedTest = { promises: number[]; kept: string; partly: string; broken: string; record: string };
 export type SeedAnnouncement = { date: string; dateLabel: string; title: string; commitments: string; sources: TrackerSource[] };
 
@@ -15,6 +29,8 @@ export const seedPromises: SeedPromise[] = [
     title: "0% property tax increases for four years",
     specifics: 'Condition: a Safe Surrey majority (met). No funding plan published; savings to come from "inside city hall"',
     area: "Taxes",
+    promisedOn: "2026-04-13",
+    targetDate: "2027-05-15",
     sources: [
       {
         label: "Homepage",
@@ -35,6 +51,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Freeze recreation fees",
     specifics: "No duration or start date",
     area: "Fees",
+    promisedOn: "2026-10-04",
     sources: [
       {
         label: "McCallum profile, Oct 4, 2026",
@@ -47,6 +64,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Free swim lessons for kids aged three to 16",
     specifics: "No cost or start date",
     area: "Recreation",
+    promisedOn: "2026-10-04",
     sources: [
       {
         label: "McCallum profile",
@@ -63,6 +81,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Free pool access for seniors",
     specifics: "No age definition or date",
     area: "Recreation",
+    promisedOn: "2026-10-04",
     sources: [
       {
         label: "McCallum profile, Oct 4, 2026",
@@ -75,6 +94,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Waive business licence fees for the first two years of every new business",
     specifics: "No start date; revenue impact unstated",
     area: "Business",
+    promisedOn: "2026-07-22",
     sources: [
       {
         label: "Peace Arch News, July 23, 2026",
@@ -91,6 +111,8 @@ export const seedPromises: SeedPromise[] = [
     title: "Surrey Centre Opportunity Zone: eliminate City fees, cut red tape, fast-track large projects, attainable middle-class housing",
     specifics: "No boundaries, fee list, or timeline",
     area: "Development",
+    promisedOn: "2026-04-13",
+    neighbourhoods: ["Whalley"],
     sources: [
       {
         label: "Voice, Apr 13, 2026",
@@ -107,6 +129,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Residential building permits approved within 60 days, guaranteed, or permit fees waived",
     specifics: "Applies to residential permits; waiver is the enforcement",
     area: "Permits",
+    promisedOn: "2026-07-22",
     sources: [
       {
         label: "Homepage",
@@ -124,6 +147,8 @@ export const seedPromises: SeedPromise[] = [
       "A full-service Surrey General Hospital in Newton: dedicate 7.2 acres at 6965 King George Boulevard, donate the land to the Province, issue every City permit within 60 days, seek construction money from Victoria and Ottawa",
     specifics: "No cost; McCallum had not spoken to the Province as of Sept 21",
     area: "Health",
+    promisedOn: "2026-09-21",
+    neighbourhoods: ["Newton"],
     sources: [
       {
         label: "Surrey Citizen, Sept 21, 2026",
@@ -148,6 +173,8 @@ export const seedPromises: SeedPromise[] = [
     title: "SkyTrain down King George Boulevard to Newton",
     specifics: 'No cost, funding, or timeline; a council that "builds it instead of studying it"; suggested 64 Avenue as the terminus',
     area: "Transit",
+    promisedOn: "2026-04-13",
+    neighbourhoods: ["Newton", "Whalley"],
     sources: [
       {
         label: "Homepage",
@@ -172,6 +199,8 @@ export const seedPromises: SeedPromise[] = [
     title: "Police helicopter and drone fleet operating over Surrey within 90 days of taking office",
     specifics: "Due about early February 2027; no cost; Police Board governs equipment",
     area: "Policing",
+    promisedOn: "2026-04-13",
+    targetDate: "2027-02-07",
     sources: [
       {
         label: "Daily Hive, Apr 13, 2026 (helicopter)",
@@ -192,6 +221,7 @@ export const seedPromises: SeedPromise[] = [
     title: 'Zero tolerance on crime and extortion; significantly expand SPS resources and personnel; fund the service "to do the job"',
     specifics: "No officer count or dollar figure",
     area: "Policing",
+    promisedOn: "2026-04-13",
     sources: [
       {
         label: "Voice, Apr 13, 2026",
@@ -216,6 +246,7 @@ export const seedPromises: SeedPromise[] = [
     title: "No political interference in the police board",
     specifics: "",
     area: "Policing",
+    promisedOn: "2026-10-04",
     sources: [
       {
         label: "McCallum profile, Oct 4, 2026",
@@ -228,6 +259,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Illegal dumping: $10,000 fine per offence for individuals; companies lose their licence and face a 10-year ban; cameras at hotspots",
     specifics: "Provincial limits on bylaw fines apply; no camera count",
     area: "Bylaws",
+    promisedOn: "2026-10-04",
     sources: [
       {
         label: "Elford profile, Oct 4, 2026",
@@ -240,6 +272,8 @@ export const seedPromises: SeedPromise[] = [
     title: "New pool in Clayton Heights",
     specifics: "No cost or date",
     area: "Recreation",
+    promisedOn: "2026-04-13",
+    neighbourhoods: ["Cloverdale"],
     sources: [
       {
         label: "Apr 13 release",
@@ -260,6 +294,8 @@ export const seedPromises: SeedPromise[] = [
     title: "New pool and community centre for City Centre",
     specifics: "No cost or date",
     area: "Recreation",
+    promisedOn: "2026-07-22",
+    neighbourhoods: ["Whalley"],
     sources: [
       {
         label: "July 22 event",
@@ -276,6 +312,8 @@ export const seedPromises: SeedPromise[] = [
     title: "New Newton community centre with a pool",
     specifics: "No cost or date; the 6965 King George site is now promised to the hospital",
     area: "Recreation",
+    promisedOn: "2026-07-22",
+    neighbourhoods: ["Newton"],
     sources: [
       {
         label: "July 22 event",
@@ -292,6 +330,8 @@ export const seedPromises: SeedPromise[] = [
     title: "New pool for Cloverdale",
     specifics: "Guerra's profile only",
     area: "Recreation",
+    promisedOn: "2026-10-04",
+    neighbourhoods: ["Cloverdale"],
     sources: [
       {
         label: "Guerra profile, Oct 4, 2026",
@@ -304,6 +344,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Restore horse racing facilities at the Cloverdale Fairgrounds",
     specifics: "From Daily Hive's platform summary; confirm wording on the platform page",
     area: "Recreation",
+    neighbourhoods: ["Cloverdale"],
     sources: [
       {
         label: "Daily Hive, Oct 18, 2026",
@@ -317,6 +358,8 @@ export const seedPromises: SeedPromise[] = [
     specifics:
       "Patton adds: everything west of 140 Street, zoning frozen as single-family, a no-tree-cut bylaw, and stopping the 89-townhome project at 128 Street and 24 Avenue; collides with provincial Bill 44",
     area: "Land use",
+    promisedOn: "2026-04-13",
+    neighbourhoods: ["South Surrey"],
     sources: [
       {
         label: "Apr 13 release",
@@ -337,6 +380,8 @@ export const seedPromises: SeedPromise[] = [
     title: "Keep the Rosemary Heights lands as a park, not townhomes",
     specifics: "",
     area: "Land use",
+    promisedOn: "2026-10-04",
+    neighbourhoods: ["South Surrey"],
     sources: [
       {
         label: "Patton profile",
@@ -353,6 +398,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Farm Local: protect farmland from development, fast-track rezoning for greenhouses and agri-manufacturing, let farmers sell direct to residents",
     specifics: "",
     area: "Agriculture",
+    promisedOn: "2026-07-22",
     sources: [
       {
         label: "July 22 event",
@@ -373,6 +419,8 @@ export const seedPromises: SeedPromise[] = [
     title: "Independent forensic audit of City Hall's recent land transactions and books, as one of the first acts; findings public; evidence to police",
     specifics: "No cost or deadline",
     area: "Governance",
+    promisedOn: "2026-07-22",
+    targetDate: "2026-12-31",
     sources: [
       {
         label: "Surrey Citizen, July 23, 2026",
@@ -389,6 +437,7 @@ export const seedPromises: SeedPromise[] = [
     title: 'Withdraw from the Metro Vancouver Regional District, keeping only water, sewer, and waste; "No studies. No task force."',
     specifics: "Condition: majority (met); needs provincial action; no timeline or savings figure",
     area: "Governance",
+    promisedOn: "2026-07-22",
     sources: [
       {
         label: "Surrey Citizen, July 23, 2026",
@@ -405,6 +454,7 @@ export const seedPromises: SeedPromise[] = [
     title: "No more in-camera council meetings",
     specifics: "The Community Charter requires some matters to be closed",
     area: "Governance",
+    promisedOn: "2026-07-22",
     sources: [
       {
         label: "Peace Arch News, July 23, 2026",
@@ -417,6 +467,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Bring back wards: eight wards of similar population drawn by an independent commission, a ward bylaw adopted, and the Province asked to approve",
     specifics: "No date; Local Government Act process to confirm",
     area: "Governance",
+    promisedOn: "2026-10-02",
     sources: [
       {
         label: "Cloverdale Reporter, Oct 2, 2026",
@@ -429,6 +480,7 @@ export const seedPromises: SeedPromise[] = [
     title: "Fewer general managers at City Hall",
     specifics: "Reported at the April 13 launch; confirm exact wording",
     area: "Governance",
+    promisedOn: "2026-04-13",
     sources: [
       {
         label: "Surrey Now-Leader, Apr 13, 2026",

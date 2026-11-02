@@ -9,7 +9,7 @@ import { audit } from "@/lib/server/audit";
 import { sendEmail } from "@/lib/server/email";
 import { getSettings } from "@/lib/server/settings";
 import { consumeToken, createToken, tokenUrl } from "@/lib/server/tokens";
-import { safeNext } from "../login/route";
+import { safeNext } from "@/lib/server/admin-redirect";
 
 const LINK_MINUTES = 20;
 

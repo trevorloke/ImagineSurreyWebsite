@@ -14,7 +14,7 @@ import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
 
 vi.mock("server-only", () => ({}));
 const { overLimitMessage } = await import("@/lib/server/limits");
-const { splitPublicFormExtras } = await import("@/lib/server/payments");
+const { publicFormContext } = await import("@/lib/server/payments");
 const { NextRequest } = await import("next/server");
 
 const LIMIT = 142970;
@@ -217,32 +217,18 @@ describe("overLimitMessage", () => {
   });
 });
 
-describe("splitPublicFormExtras", () => {
-  const request = (body: unknown) =>
-    new NextRequest("http://localhost/api/membership", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "10.1.2.3" },
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    });
+describe("publicFormContext", () => {
+  const request = (headers: Record<string, string> = {}) =>
+    new NextRequest("http://localhost/api/membership", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: "{}" });
 
-  it("lifts source and ref out of the body and leaves the rest for the strict schema", async () => {
-    const { request: rest, extras } = await splitPublicFormExtras(request({ email: "a@example.com", source: " flyer ", ref: "abc123", website: "" }));
-    expect(extras).toEqual({ source: "flyer", ref: "abc123" });
-    expect(await rest.json()).toEqual({ email: "a@example.com", website: "" });
-    expect(rest.headers.get("x-forwarded-for")).toBe("10.1.2.3");
-    expect(rest.method).toBe("POST");
+  it("takes source and ref from the body first, then the tracking cookie", () => {
+    const req = request({ cookie: "other=1; is_track=ref%3DCOOKIE1%26source%3Dcookie-src", "x-forwarded-for": "10.1.2.3, 10.0.0.1", "user-agent": "test-agent" });
+    expect(publicFormContext(req, { source: "flyer", ref: "BODYREF1" })).toEqual({ tracking: { ref: "BODYREF1", source: "flyer" }, meta: { ip: "10.1.2.3", userAgent: "test-agent" } });
+    expect(publicFormContext(req, {}).tracking).toEqual({ ref: "COOKIE1", source: "cookie-src" });
   });
 
-  it("ignores extras that are the wrong shape", async () => {
-    const { request: rest, extras } = await splitPublicFormExtras(request({ email: "a@example.com", source: "x".repeat(41), ref: 12 }));
-    expect(extras).toEqual({});
-    expect(await rest.json()).toEqual({ email: "a@example.com" });
-  });
-
-  it("passes a body that isn't JSON through for the usual error", async () => {
-    const { request: rest, extras } = await splitPublicFormExtras(request("not json"));
-    expect(extras).toEqual({});
-    await expect(rest.json()).rejects.toThrow();
+  it("ignores values that aren't safe tags", () => {
+    expect(publicFormContext(request(), { source: "<script>", ref: 12 }).tracking).toEqual({ ref: null, source: null });
   });
 });
 
