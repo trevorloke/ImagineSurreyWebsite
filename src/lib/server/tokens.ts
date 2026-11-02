@@ -5,7 +5,7 @@ import type { Db } from "@/lib/db";
 import { authTokens } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 
-export type TokenPurpose = "admin-login" | "member-login" | "newsletter-confirm" | "membership-confirm" | "email-change" | "promise-follow" | "volunteer-cancel";
+export type TokenPurpose = "admin-login" | "member-login" | "newsletter-confirm" | "membership-confirm" | "email-change" | "promise-follow" | "volunteer-cancel" | "preferences";
 
 const hash = (raw: string) => createHash("sha256").update(raw).digest("hex");
 
