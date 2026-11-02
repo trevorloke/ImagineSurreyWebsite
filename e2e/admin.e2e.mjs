@@ -21,6 +21,12 @@ const page$ = async (path) => {
 const tableBody = (html) => html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0] ?? "";
 const tile = (html, label) => html.match(new RegExp(`<div class="value">([^<]*)</div><div class="label">(?:<a [^>]*>)?${label}`))?.[1];
 
+// Other suites may have run against the same database first, so the
+// dashboard is checked against what it showed before this suite's data.
+const num = (v) => Number(String(v ?? "").replace(/[^0-9.-]/g, "")) || 0;
+const before = await page$("/admin");
+const baseline = { members: num(tile(before.text, "Active members")), raised: num(tile(before.text, "Raised this year")), subscribers: num(tile(before.text, "Newsletter subscribers")) };
+
 // ── Supporters, created straight in the database ──────────────────────────
 await sql`delete from people where email like '%@crm.example'`;
 const [asha] = await sql`insert into people (email, first_name, last_name, phone, address, city, province, postal_code, neighbourhood, languages, interest_volunteer, tags, source, contact_consent_at, sms_consent_at, referral_code, created_at)
@@ -56,9 +62,9 @@ await sql`insert into person_notes (person_id, author_name, body) values (${pat.
 // ── Dashboard ─────────────────────────────────────────────────────────────
 let dash = await page$("/admin");
 ok(dash.status === 200 && dash.text.includes("Needs attention") && dash.text.includes("<svg"), "dashboard renders with sparklines");
-ok(tile(dash.text, "Active members") === "1", `active members counts one person with a live membership (got ${tile(dash.text, "Active members")})`);
-ok(tile(dash.text, "Raised this year") === "$80", `raised this year is net of refunds (got ${tile(dash.text, "Raised this year")})`);
-ok(tile(dash.text, "Newsletter subscribers") === "2", "pending newsletter sign-ups are not counted as subscribers");
+ok(num(tile(dash.text, "Active members")) - baseline.members === 1, `active members counts one person with a live membership (got ${tile(dash.text, "Active members")}, before ${baseline.members})`);
+ok(num(tile(dash.text, "Raised this year")) - baseline.raised === 80, `raised this year is net of refunds (got ${tile(dash.text, "Raised this year")}, before $${baseline.raised})`);
+ok(num(tile(dash.text, "Newsletter subscribers")) - baseline.subscribers === 2, "pending newsletter sign-ups are not counted as subscribers");
 ok(dash.text.includes("emails failed to send today") && dash.text.includes("memberships pending payment for over an hour"), "needs-attention lists failed emails and stale pending memberships");
 ok(!dash.text.includes("asha@crm.example"), "dataset tables have moved off the dashboard");
 dash = await page$("/admin?denied=users");
@@ -260,7 +266,7 @@ ok(auditRows.includes("nadia@crm.example") && !auditRows.includes("person.anonym
 ok((await fetch(BASE + "/admin/audit", { headers: { cookie: nadiaCookie2 }, redirect: "manual" })).headers.get("location")?.includes("denied=users"), "audit log needs the users permission");
 
 // ── Filtered CSV export ───────────────────────────────────────────────────
-csv = await (await fetch(BASE + "/api/admin/export/people?membership=active&sort=name", { headers: { cookie } })).text();
+csv = await (await fetch(BASE + "/api/admin/export/people?membership=active&sort=name&q=crm.example", { headers: { cookie } })).text();
 const lines = csv.trim().split("\r\n");
 ok(lines[0].startsWith("first_name,last_name,email,phone,address") && lines[0].includes(",membership,") && lines[0].endsWith(",created_at"), "supporter CSV header");
 ok(lines.length === 2 && lines[1].includes("asha@crm.example") && lines[1].includes(",active,") && lines[1].includes("Door Knocker") && /,\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(lines[1]), "filtered export has the one active member with tags and Pacific timestamps");

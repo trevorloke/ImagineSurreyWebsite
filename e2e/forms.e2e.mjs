@@ -25,7 +25,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, red
 
 /** Navigate and wait for React to hydrate: the forms fill their hidden locale field in an effect, so it is a reliable signal. */
 async function go(p, url) {
-  await p.goto(url, { waitUntil: "networkidle" });
+  await p.goto(url, { waitUntil: "load" });
   if (await p.locator("input[name=locale]").count()) await p.waitForFunction(() => document.querySelector("input[name=locale]")?.value === "en", null, { timeout: 15000 });
   else await p.waitForTimeout(300);
 }
