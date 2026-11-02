@@ -1,8 +1,12 @@
 import "server-only";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { emailCampaigns, emailLog } from "@/lib/db/schema";
 import { env } from "@/lib/env";
+import type { MessageContext } from "@/lib/email/messages";
+import type { EmailAttachment } from "@/lib/email/notifications";
+import { defaultSettings } from "@/lib/settings";
+import { getSettings } from "./settings";
 
 /**
  * All outgoing email goes through here. Every message is written to
@@ -21,27 +25,61 @@ export type OutgoingEmail = {
   campaignId?: string | null;
   replyTo?: string;
   unsubscribeUrl?: string | null;
+  /** Calendar files and the like; sent with transactional mail only (the batch API has no attachments). */
+  attachments?: EmailAttachment[];
 };
 
 export type SendResult = { id: string; status: "sent" | "failed" | "skipped"; error?: string };
 
 const RESEND = "https://api.resend.com";
 
-function headersFor(email: OutgoingEmail): Record<string, string> {
+function headersFor(email: Pick<OutgoingEmail, "unsubscribeUrl">): Record<string, string> {
   const h: Record<string, string> = {};
   if (email.unsubscribeUrl) {
     // One-click unsubscribe (RFC 8058), required by Gmail and Yahoo for bulk senders.
-    h["List-Unsubscribe"] = `<${email.unsubscribeUrl}>`;
+    // Mail clients POST to this address, so it names the API route (which
+    // accepts ?token=), not the page with the button that the email links to.
+    h["List-Unsubscribe"] = `<${oneClickUrl(email.unsubscribeUrl)}>`;
     h["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
   return h;
+}
+
+/** /newsletter/unsubscribe?token=… (the page) → /api/newsletter/unsubscribe?token=… (the one-click POST handler). */
+export function oneClickUrl(unsubscribeUrl: string): string {
+  try {
+    const url = new URL(unsubscribeUrl);
+    if (url.pathname === "/newsletter/unsubscribe") url.pathname = "/api/newsletter/unsubscribe";
+    return url.toString();
+  } catch {
+    return unsubscribeUrl;
+  }
+}
+
+/** The plain-text part as stored in the log: the text, plus a note of any attachments. */
+export function logText(email: Pick<OutgoingEmail, "text" | "attachments">): string | null {
+  const parts: string[] = [];
+  if (email.text) parts.push(email.text);
+  if (email.attachments?.length) parts.push(`Attachments: ${email.attachments.map((a) => a.filename).join(", ")}`);
+  return parts.length ? parts.join("\n\n") : null;
+}
+
+/** Org name, contact address and site URL for email builders. Never throws: falls back to the code defaults. */
+export async function emailContext(): Promise<MessageContext> {
+  let org = defaultSettings().org;
+  try {
+    org = (await getSettings()).org;
+  } catch (err) {
+    console.error("settings unavailable for email; using defaults", err);
+  }
+  return { siteUrl: env.siteUrl, orgName: org.shortName || org.name, orgEmail: org.email };
 }
 
 /** Send one email now (transactional). */
 export async function sendEmail(db: Db, email: OutgoingEmail): Promise<SendResult> {
   const [row] = await db
     .insert(emailLog)
-    .values({ to: email.to.toLowerCase(), subject: email.subject, html: email.html, text: email.text ?? null, kind: email.kind, personId: email.personId ?? null, campaignId: email.campaignId ?? null, attempts: 1 })
+    .values({ to: email.to.toLowerCase(), subject: email.subject, html: email.html, text: logText(email), kind: email.kind, personId: email.personId ?? null, campaignId: email.campaignId ?? null, attempts: 1 })
     .returning({ id: emailLog.id });
 
   if (!env.emailEnabled) {
@@ -63,6 +101,7 @@ export async function sendEmail(db: Db, email: OutgoingEmail): Promise<SendResul
         reply_to: email.replyTo ?? env.emailReplyTo,
         headers: headersFor(email),
         tags: [{ name: "kind", value: email.kind.replace(/[^a-zA-Z0-9_-]/g, "_") }],
+        attachments: email.attachments?.map((a) => ({ filename: a.filename, content: a.content, content_type: a.contentType })),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
@@ -79,7 +118,7 @@ export async function sendEmail(db: Db, email: OutgoingEmail): Promise<SendResul
 /** Queue emails to be sent in batches by the cron job (campaigns, reminders). */
 export async function queueEmails(db: Db, emails: OutgoingEmail[]): Promise<number> {
   if (emails.length === 0) return 0;
-  const rows = emails.map((e) => ({ to: e.to.toLowerCase(), subject: e.subject, html: e.html, text: e.text ?? null, kind: e.kind, personId: e.personId ?? null, campaignId: e.campaignId ?? null }));
+  const rows = emails.map((e) => ({ to: e.to.toLowerCase(), subject: e.subject, html: e.html, text: logText(e), kind: e.kind, personId: e.personId ?? null, campaignId: e.campaignId ?? null }));
   for (let i = 0; i < rows.length; i += 500) await db.insert(emailLog).values(rows.slice(i, i + 500));
   return rows.length;
 }
@@ -95,6 +134,14 @@ const BATCH = 100;
 export async function sendQueued(db: Db, limit = 300): Promise<{ sent: number; failed: number; skipped: number }> {
   const totals = { sent: 0, failed: 0, skipped: 0 };
   const touchedCampaigns = new Set<string>();
+
+  // Nothing queued for a cancelled campaign goes out.
+  const cancelled = await db
+    .update(emailLog)
+    .set({ status: "skipped", error: "Campaign cancelled" })
+    .where(and(eq(emailLog.status, "queued"), sql`${emailLog.campaignId} in (select id from email_campaigns where status = 'cancelled')`))
+    .returning({ id: emailLog.id });
+  totals.skipped += cancelled.length;
 
   while (totals.sent + totals.failed + totals.skipped < limit) {
     const claimed = await db.transaction(async (tx) => {
@@ -130,7 +177,7 @@ export async function sendQueued(db: Db, limit = 300): Promise<{ sent: number; f
             html: r.html ?? "",
             text: r.text ?? undefined,
             reply_to: env.emailReplyTo,
-            headers: headersFor({ to: r.to, subject: r.subject, html: "", kind: r.kind, unsubscribeUrl: unsubscribeLinkFrom(r.html) }),
+            headers: headersFor({ unsubscribeUrl: unsubscribeLinkFrom(r.html) }),
           })),
         ),
       });
@@ -177,6 +224,22 @@ export async function refreshCampaignCounts(db: Db, campaignId: string): Promise
     .update(emailCampaigns)
     .set({ sentCount: c.sent, failedCount: c.failed, ...(c.queued === 0 ? { status: "sent", sentAt: sql`coalesce(${emailCampaigns.sentAt}, now())` } : {}) })
     .where(and(eq(emailCampaigns.id, campaignId), eq(emailCampaigns.status, "sending")));
+}
+
+/**
+ * Put a failed transactional email back in the queue by copying its row, so
+ * the original attempt stays in the log. Returns the new row's id, or null
+ * when the row can't be re-sent (not failed, part of a campaign, or its body
+ * was pruned).
+ */
+export async function requeueEmail(db: Db, id: string): Promise<string | null> {
+  const row = await db.query.emailLog.findFirst({ where: and(eq(emailLog.id, id), eq(emailLog.status, "failed"), isNull(emailLog.campaignId)) });
+  if (!row || !row.html) return null;
+  const [copy] = await db
+    .insert(emailLog)
+    .values({ to: row.to, personId: row.personId, kind: row.kind, subject: row.subject, html: row.html, text: row.text })
+    .returning({ id: emailLog.id });
+  return copy.id;
 }
 
 /** Drop stored bodies of old sent mail so the log stays small; the metadata stays. */
