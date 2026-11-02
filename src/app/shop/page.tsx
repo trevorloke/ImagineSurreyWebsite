@@ -9,7 +9,7 @@ export default async function ShopPage() {
   const products = await activeProducts();
   return (
     <>
-      <PageHead title="Get the merch">Lawn signs, shirts, and buttons. Choose what you&apos;d like and check out securely with Stripe. We ship across Canada.</PageHead>
+      <PageHead title="Get the merch">Lawn signs, shirts, and buttons. Choose what you’d like and check out securely with Stripe. We ship across Canada.</PageHead>
       <section className="section section--surface">
         <div className="container stack" style={{ gap: 24 }}>
           {products.length === 0 ? (
