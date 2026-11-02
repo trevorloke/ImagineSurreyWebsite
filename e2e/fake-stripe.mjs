@@ -1,10 +1,15 @@
 // A stand-in for the Stripe API endpoints the site calls, so the end-to-end
 // suite can run without a Stripe account. Point the site at it with
 // STRIPE_API_BASE=http://localhost:<port>.
+//
+// Besides the Stripe endpoints it has two test-only ones: GET /__log lists
+// every call made to it, and POST /__objects (JSON) registers an invoice or
+// subscription for the site to retrieve by id.
 import http from "node:http";
 
 const port = Number(process.env.PORT ?? 12111);
 const sessions = new Map();
+const objects = new Map();
 const calls = [];
 let n = 0;
 
@@ -27,14 +32,25 @@ http
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       const url = new URL(req.url, "http://x");
-      const params = parseForm(body);
+      const isJson = (req.headers["content-type"] ?? "").includes("application/json");
+      const params = isJson ? (body ? JSON.parse(body) : {}) : parseForm(body);
       calls.push({ method: req.method, path: url.pathname, params, idem: req.headers["idempotency-key"] });
       const send = (o, s = 200) => {
         res.writeHead(s, { "content-type": "application/json" });
         res.end(JSON.stringify(o));
       };
+      const notFound = (what) => send({ error: { type: "invalid_request_error", code: "resource_missing", message: `No such ${what}` } }, 404);
+
       if (url.pathname === "/__log") return send(calls);
+      if (req.method === "POST" && url.pathname === "/__objects") {
+        objects.set(params.id, params);
+        return send({ ok: true });
+      }
+
       if (req.method === "POST" && url.pathname === "/v1/checkout/sessions") {
+        if (params.customer === "cus_missing") {
+          return send({ error: { type: "invalid_request_error", code: "resource_missing", param: "customer", message: "No such customer: 'cus_missing'" } }, 400);
+        }
         const id = `cs_test_${++n}`;
         const items = Object.values(params.line_items ?? {});
         const amount_total = items.reduce((s, li) => s + Number(li.price_data.unit_amount) * Number(li.quantity), 0);
@@ -42,12 +58,17 @@ http
         sessions.set(id, s);
         return send(s);
       }
-      const m = url.pathname.match(/^\/v1\/checkout\/sessions\/(.+)$/);
+      let m = url.pathname.match(/^\/v1\/checkout\/sessions\/([^/]+)$/);
       if (m) {
         const s = sessions.get(m[1]);
-        return s ? send({ ...s, status: "complete" }) : send({ error: { message: "no such session" } }, 404);
+        return s ? send({ ...s, status: "complete", payment_status: "paid", payment_intent: `pi_${s.id}` }) : notFound("session");
       }
-      if (url.pathname === "/v1/refunds") return send({ id: `re_${++n}`, object: "refund", amount: Number(params.amount) });
+      m = url.pathname.match(/^\/v1\/(invoices|subscriptions)\/([^/]+)$/);
+      if (m) {
+        const o = objects.get(m[2]);
+        return o ? send(o) : notFound(m[1].slice(0, -1));
+      }
+      if (url.pathname === "/v1/refunds") return send({ id: `re_${++n}`, object: "refund", amount: Number(params.amount), payment_intent: params.payment_intent });
       if (url.pathname === "/v1/invoice_payments") {
         return send({
           object: "list",
