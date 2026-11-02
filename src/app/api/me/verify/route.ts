@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   if (token) url.searchParams.set("token", token);
   if (next) url.searchParams.set("next", next);
   const res = NextResponse.redirect(url, 303);
-  res.headers.set("Referrer-Policy", "no-referrer");
+  res.headers.set("Referrer-Policy", "same-origin");
   return res;
 }
 
@@ -46,7 +46,9 @@ export async function POST(req: NextRequest) {
 
 /** Only this site's own page may submit a token, so no other site can sign a visitor in. */
 function sameSite(req: NextRequest): boolean {
-  if (req.headers.get("sec-fetch-site") === "cross-site") return false;
+  // Browsers say where a request came from; anything but this site (or a typed URL) is refused.
+  const site = req.headers.get("sec-fetch-site");
+  if (site) return site === "same-origin" || site === "none";
   const origin = req.headers.get("origin");
   if (!origin) return true;
   const allowed = new Set([new URL(req.url).origin, new URL(env.siteUrl).origin]);

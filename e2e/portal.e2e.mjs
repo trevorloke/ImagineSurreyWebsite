@@ -106,6 +106,8 @@ const verifyPage = await (await fetch(`${BASE}/me/verify?token=${raw}`)).text();
 ok(verifyPage.includes('action="/api/me/verify"') && verifyPage.includes('method="post"') && verifyPage.includes(raw) && (await sql`select used_at from auth_tokens where token_hash = ${sha256(raw)}`)[0]?.used_at === null, "the /me/verify page shows a Sign in button and still does not use the token");
 r = await verifyPost(raw, undefined, { origin: "https://evil.example" });
 ok(r.status === 403 && !r.headers.get("set-cookie"), "a cross-site POST cannot sign anyone in");
+r = await verifyPost(raw, undefined, { "sec-fetch-site": "cross-site" });
+ok(r.status === 403 && !r.headers.get("set-cookie"), "…whatever the Origin header says, when the browser marks it cross-site");
 r = await verifyPost(raw);
 const setCookie = r.headers.get("set-cookie") ?? "";
 ok(r.status === 303 && (r.headers.get("location") ?? "").endsWith("/me") && /(^|, )is_member=[^;]+;/.test(setCookie) && /httponly/i.test(setCookie) && /samesite=lax/i.test(setCookie), "the button's POST sets the is_member cookie and redirects to /me");

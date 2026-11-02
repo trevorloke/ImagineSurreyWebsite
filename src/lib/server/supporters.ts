@@ -237,7 +237,8 @@ export async function loadPerson(db: Db, id: string, options: { money: boolean }
     options.money
       ? db.execute(sql`select coalesce(sum(amount_cents - refunded_cents), 0)::int as n from contributions where person_id = ${id} and ${PAID} and paid_at >= ${YEAR_START}`)
       : Promise.resolve([{ n: 0 }]),
-    ensureReferralCode(db, id),
+    // An anonymized record gets no new share code.
+    person.email.endsWith("@invalid") ? Promise.resolve(person.referralCode ?? "") : ensureReferralCode(db, id),
     person.referredById ? db.select(refCols).from(people).where(eq(people.id, person.referredById)).limit(1) : Promise.resolve([]),
     db.select(refCols).from(people).where(eq(people.referredById, id)).orderBy(desc(people.createdAt)).limit(100),
     loadTimeline(db, person, options.money),

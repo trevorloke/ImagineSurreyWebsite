@@ -205,7 +205,7 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
             <dl className="facts">
               <dt>Share code</dt>
               <dd>
-                <span className="secret">{profile.referralCode}</span>
+                <span className="secret">{profile.referralCode || "—"}</span>
               </dd>
               <dt>Referred by</dt>
               <dd>{profile.referredBy ? <Link href={`/admin/people/${profile.referredBy.id}`}>{profile.referredBy.name}</Link> : "—"}</dd>

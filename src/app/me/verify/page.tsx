@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
 import { safeMemberNext } from "@/lib/engagement";
 
-export const metadata: Metadata = { title: "Sign in", robots: { index: false }, referrer: "no-referrer" };
+export const metadata: Metadata = { title: "Sign in", robots: { index: false }, referrer: "same-origin" };
 
 /**
  * Where the emailed sign-in link lands. Nothing happens until the person

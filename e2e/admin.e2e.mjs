@@ -255,10 +255,12 @@ ok((await fetch(BASE + "/api/admin/export/people?tag=bulk", { headers: { cookie:
 
 // Money data needs the money permission, on the list, the CSV and the profile.
 const asNadia = async (path) => (await (await fetch(BASE + path, { headers: { cookie: nadiaCookie } })).text()).replace(/<!--.*?-->/g, "");
-let nadiaPage = await asNadia("/admin/people?donated=1&q=crm.example");
-ok(nadiaPage.includes("raj@crm.example") && !nadiaPage.includes('name="donated"'), "an organizer can't filter by donors, even through the URL, and has no donor checkbox");
-const ownerList = await page$("/admin/people?donated=1&q=crm.example");
-ok(ownerList.text.includes("asha@crm.example") && !ownerList.text.includes("raj@crm.example") && ownerList.text.includes('name="donated"'), "the owner can filter by donors");
+// Raj gave nothing, so a working donor filter hides him.
+let nadiaPage = await asNadia("/admin/people?donated=1&q=raj%40crm.example");
+ok(nadiaPage.includes("Raj Patel") && !nadiaPage.includes('name="donated"'), "an organizer can't filter by donors, even through the URL, and has no donor checkbox");
+const ownerList = await page$("/admin/people?donated=1&q=raj%40crm.example");
+const ownerAsha = await page$("/admin/people?donated=1&q=asha%40crm.example");
+ok(!tableBody(ownerList.text).includes("Raj Patel") && ownerAsha.text.includes("Asha Singh") && ownerList.text.includes('name="donated"'), "the owner can filter by donors");
 const nadiaCsv = await (await fetch(BASE + "/api/admin/export/people?donated=1&q=crm.example", { headers: { cookie: nadiaCookie } })).text();
 ok(!nadiaCsv.split("\r\n")[0].includes("donated_this_year_cents") && nadiaCsv.includes("raj@crm.example"), "an organizer's CSV has no amount column and ignores the donor filter");
 const ownerCsv = await (await fetch(BASE + "/api/admin/export/people?q=crm.example", { headers: { cookie } })).text();
