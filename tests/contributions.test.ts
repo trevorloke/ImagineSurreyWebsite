@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { checkAnnualLimit, excessOverLimit, pacificYearMonth, slateAmountsFor, starClubCents } from "@/lib/contributions";
+import {
+  addYear,
+  checkAnnualLimit,
+  excessOverLimit,
+  pacificMonthBounds,
+  pacificMonthStart,
+  pacificYearBounds,
+  pacificYearMonth,
+  slateAmountsFor,
+  starClubCents,
+} from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
 
 const LIMIT = 142970;
@@ -32,7 +42,7 @@ describe("checkAnnualLimit", () => {
     expect(checkAnnualLimit({ ...base, frequency: "one_time", slateAmounts: { council: LIMIT } }).ok).toBe(true);
   });
 
-  it("refuses a gift that would cross the limit and says how much is left", () => {
+  it("refuses a gift that would cross the limit and reports how much is left (for the portal, never a public message)", () => {
     const r = checkAnnualLimit({ ...base, frequency: "one_time", slateAmounts: { council: 50000 }, yearToDate: { council: 100000 } });
     expect(r).toEqual({ ok: false, slate: "council", remainingCents: 42970 });
   });
@@ -72,9 +82,26 @@ describe("excessOverLimit", () => {
   });
 });
 
-describe("pacificYearMonth", () => {
+describe("Pacific calendar", () => {
   it("counts New Year's Eve evening in Surrey as the old year", () => {
     expect(pacificYearMonth(new Date("2027-01-01T05:00:00Z"))).toEqual({ year: 2026, monthIndex: 11 });
     expect(pacificYearMonth(new Date("2027-01-01T09:00:00Z"))).toEqual({ year: 2027, monthIndex: 0 });
+  });
+
+  it("starts months at Pacific midnight on either side of a clock change", () => {
+    expect(pacificMonthStart(2026, 0).toISOString()).toBe("2026-01-01T08:00:00.000Z"); // PST
+    expect(pacificMonthStart(2026, 6).toISOString()).toBe("2026-07-01T07:00:00.000Z"); // PDT
+    expect(pacificMonthStart(2026, 10).toISOString()).toBe("2026-11-01T07:00:00.000Z"); // clocks go back later that day
+    expect(pacificMonthStart(2026, 2).toISOString()).toBe("2026-03-01T08:00:00.000Z"); // clocks go forward later that month
+  });
+
+  it("bounds a contribution year and a month", () => {
+    expect(pacificYearBounds(2026).map((d) => d.toISOString())).toEqual(["2026-01-01T08:00:00.000Z", "2027-01-01T08:00:00.000Z"]);
+    expect(pacificMonthBounds(2026, 11).map((d) => d.toISOString())).toEqual(["2026-12-01T08:00:00.000Z", "2027-01-01T08:00:00.000Z"]);
+    expect(pacificMonthBounds(2026, 9).map((d) => d.toISOString())).toEqual(["2026-10-01T07:00:00.000Z", "2026-11-01T07:00:00.000Z"]);
+  });
+
+  it("adds a year to a date", () => {
+    expect(addYear(new Date("2026-02-28T20:00:00Z")).toISOString()).toBe("2027-02-28T20:00:00.000Z");
   });
 });

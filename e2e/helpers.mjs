@@ -1,6 +1,8 @@
 // Shared helpers for the end-to-end suites. Each suite is a plain script that
 // prints PASS/FAIL lines and exits non-zero on any failure.
+import { randomBytes, scryptSync } from "node:crypto";
 import postgres from "postgres";
+import Stripe from "stripe";
 
 export const BASE = process.env.E2E_BASE_URL ?? `http://localhost:${process.env.E2E_PORT ?? 3100}`;
 export const STRIPE_BASE = process.env.STRIPE_API_BASE ?? `http://localhost:${process.env.E2E_STRIPE_PORT ?? 12111}`;
@@ -42,10 +44,45 @@ export async function stripeLog() {
   return (await fetch(`${STRIPE_BASE}/__log`)).json();
 }
 
+/** Register an invoice or subscription with the fake Stripe so the site can retrieve it by id. */
+export async function stripeObject(object) {
+  await fetch(`${STRIPE_BASE}/__objects`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(object) });
+}
+
+const stripe = new Stripe("sk_test_x");
+let eventNumber = 0;
+
+/** Deliver a signed Stripe event to the site's webhook. `created` defaults to now (seconds). */
+export async function stripeEvent(type, object, { created } = {}) {
+  const payload = JSON.stringify({
+    id: `evt_${Date.now()}_${++eventNumber}`,
+    object: "event",
+    type,
+    created: created ?? Math.floor(Date.now() / 1000),
+    data: { object },
+  });
+  const header = stripe.webhooks.generateTestHeaderString({ payload, secret: WEBHOOK_SECRET });
+  const r = await fetch(BASE + "/api/stripe/webhook", { method: "POST", headers: { "stripe-signature": header, "content-type": "application/json" }, body: payload });
+  return { status: r.status, body: await r.json(), payload };
+}
+
 export const sessionIdFromUrl = (url) => url.split("/").pop();
+
+/**
+ * Make sure the owner account exists with ADMIN_EMAIL and ADMIN_PASSWORD. The
+ * site bootstraps it from the same variables; a runner that sets no
+ * ADMIN_EMAIL gets one seeded here, in the same scrypt format the site uses.
+ */
+export async function ensureAdmin() {
+  const salt = randomBytes(16);
+  const key = scryptSync(ADMIN_PASSWORD, salt, 64, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  const hash = `scrypt$${salt.toString("base64url")}$${key.toString("base64url")}`;
+  await sql`insert into admin_users (email, name, role, password_hash) values (${ADMIN_EMAIL.toLowerCase()}, 'Owner', 'owner', ${hash}) on conflict (email) do nothing`;
+}
 
 /** Sign in to /admin with Playwright (the bootstrap owner from ADMIN_EMAIL/ADMIN_PASSWORD). */
 export async function adminLogin(page) {
+  await ensureAdmin();
   await page.goto(BASE + "/admin/login");
   await page.fill("#email", ADMIN_EMAIL);
   await page.fill("#password", ADMIN_PASSWORD);
