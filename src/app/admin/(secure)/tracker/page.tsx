@@ -3,11 +3,13 @@ import { StatusBadge } from "@/components/tracker/PromiseList";
 import { todayInSurrey } from "@/lib/shifts";
 import { countByStatus, PROMISE_STATUSES } from "@/lib/tracker";
 import { loadTracker } from "@/lib/server/tracker";
+import { requireAdmin } from "@/lib/server/admin-auth";
 import { addAnnouncement, addPromise, addUpdate, deleteAnnouncement, deletePromise, deleteUpdate, editPromise, setStatus } from "./actions";
 
 const textarea = { padding: 12, minHeight: 72 } as const;
 
 export default async function AdminTracker() {
+  await requireAdmin("tracker");
   const { promises, announcements } = await loadTracker();
   const today = todayInSurrey();
   const counts = countByStatus(promises.map((p) => p.status));

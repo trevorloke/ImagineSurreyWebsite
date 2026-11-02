@@ -7,8 +7,8 @@ import { updateShiftSchema } from "@/lib/shift-validation";
 
 // Move a shift to another day or time, or change its task.
 export async function PATCH(req: Request, ctx: RouteContext<"/api/admin/shifts/[id]">) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const parsed = updateShiftSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Invalid change.", 422);
@@ -26,8 +26,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/admin/shifts/[
 }
 
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/admin/shifts/[id]">) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   await getDb().delete(shifts).where(eq(shifts.id, id));
   return json({ ok: true });

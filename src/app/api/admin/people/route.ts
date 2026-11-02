@@ -5,8 +5,8 @@ import { adminOnly } from "@/lib/server/admin-api";
 import { searchPeople } from "@/lib/server/shifts";
 
 export async function GET(req: NextRequest) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("people");
+  if (!auth.ok) return auth.response;
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
   return json(q.length < 2 ? [] : await searchPeople(getDb(), q));
 }

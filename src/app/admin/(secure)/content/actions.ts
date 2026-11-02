@@ -38,7 +38,7 @@ const newsInput = z.object({
 });
 
 export async function createNews(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   const input = newsInput.parse(Object.fromEntries(form));
   const db = getDb();
   await db.insert(newsPosts).values({
@@ -52,7 +52,7 @@ export async function createNews(form: FormData) {
 }
 
 export async function setNewsPublished(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   const id = z.uuid().parse(form.get("id"));
   const publish = form.get("publish") === "1";
   await getDb().update(newsPosts).set({ publishedAt: publish ? new Date() : null }).where(eq(newsPosts.id, id));
@@ -60,7 +60,7 @@ export async function setNewsPublished(form: FormData) {
 }
 
 export async function deleteNews(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   await getDb().delete(newsPosts).where(eq(newsPosts.id, z.uuid().parse(form.get("id"))));
   revalidatePath("/", "layout");
 }
@@ -74,7 +74,7 @@ const eventInput = z.object({
 });
 
 export async function createEvent(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   const input = eventInput.parse(Object.fromEntries(form));
   await getDb()
     .insert(events)
@@ -83,13 +83,13 @@ export async function createEvent(form: FormData) {
 }
 
 export async function deleteEvent(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   await getDb().delete(events).where(eq(events.id, z.uuid().parse(form.get("id"))));
   revalidatePath("/", "layout");
 }
 
 export async function updateProduct(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("content");
   const id = z.uuid().parse(form.get("id"));
   const dollars = z.coerce.number().positive().max(10_000).parse(form.get("price"));
   await getDb()

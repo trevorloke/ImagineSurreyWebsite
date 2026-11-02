@@ -7,8 +7,8 @@ import { createShiftSchema } from "@/lib/shift-validation";
 
 // Put someone on a shift. If they're already on it, this just updates the task.
 export async function POST(req: Request) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const parsed = createShiftSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Invalid shift.", 422);
   const [row] = await getDb()

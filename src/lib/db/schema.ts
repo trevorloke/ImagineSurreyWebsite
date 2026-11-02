@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
+  check,
   date,
   index,
   integer,
@@ -42,12 +45,22 @@ export const people = pgTable(
     interestVolunteer: boolean("interest_volunteer").notNull().default(false),
     interestLawnSign: boolean("interest_lawn_sign").notNull().default(false),
     contactConsentAt: timestamp("contact_consent_at", { withTimezone: true }),
+    // Express consent to text messages (CASL): set only by the person's own tick.
+    smsConsentAt: timestamp("sms_consent_at", { withTimezone: true }),
     stripeCustomerId: text("stripe_customer_id"),
+    // "test" or "live": a customer id from the other Stripe mode is never reused.
+    stripeCustomerMode: text("stripe_customer_mode"),
+    // Where this person first came from: membership, donation, petition:…, event:…
+    source: text("source"),
+    tags: text("tags").array().notNull().default([]),
+    // Relational organizing: the share code this person hands out, and who brought them in.
+    referralCode: text("referral_code"),
+    referredById: uuid("referred_by_id").references((): AnyPgColumn => people.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("people_email_idx").on(t.email)],
-);
+  (t) => [uniqueIndex("people_email_idx").on(t.email), uniqueIndex("people_referral_code_idx").on(t.referralCode), index("people_referred_by_idx").on(t.referredById)],
+).enableRLS();
 
 // ── Memberships ───────────────────────────────────────────────────────────
 export const membershipStatus = pgEnum("membership_status", [
@@ -70,6 +83,13 @@ export const memberships = pgTable(
     votingEligible: boolean("voting_eligible").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // The member's details as given when they joined. Public forms never
+    // overwrite these; the voting roll is built from them.
+    memberName: text("member_name"),
+    memberAddress: text("member_address"),
+    memberCity: text("member_city"),
+    memberPostalCode: text("member_postal_code"),
+    memberNeighbourhood: text("member_neighbourhood"),
     stripeCheckoutSessionId: text("stripe_checkout_session_id"),
     createdAt: createdAt(),
   },
@@ -77,7 +97,7 @@ export const memberships = pgTable(
     index("memberships_person_idx").on(t.personId),
     uniqueIndex("memberships_checkout_idx").on(t.stripeCheckoutSessionId),
   ],
-);
+).enableRLS();
 
 // ── Contributions ─────────────────────────────────────────────────────────
 // Every dollar received, including membership fees, which count as
@@ -109,6 +129,8 @@ export const contributions = pgTable(
     amountCents: integer("amount_cents").notNull(),
     // Returned to the contributor, e.g. the part of a payment over the annual limit.
     refundedCents: integer("refunded_cents").notNull().default(0),
+    // Decided inside the webhook transaction, issued to Stripe after it commits.
+    refundPendingCents: integer("refund_pending_cents").notNull().default(0),
     status: contributionStatus("status").notNull().default("pending"),
     contributorName: text("contributor_name").notNull(),
     contributorAddress: text("contributor_address").notNull(),
@@ -130,8 +152,10 @@ export const contributions = pgTable(
     index("contributions_payment_intent_idx").on(t.stripePaymentIntentId),
     // One row per slate per invoice: a Superstar monthly payment is two rows.
     uniqueIndex("contributions_invoice_slate_idx").on(t.stripeInvoiceId, t.slate),
+    check("contributions_amount_positive", sql`${t.amountCents} > 0`),
+    check("contributions_refund_bounds", sql`${t.refundedCents} >= 0 and ${t.refundedCents} + ${t.refundPendingCents} <= ${t.amountCents}`),
   ],
-);
+).enableRLS();
 
 // ── Recurring donations ───────────────────────────────────────────────────
 export const recurringStatus = pgEnum("recurring_status", ["pending", "active", "cancelled"]);
@@ -160,10 +184,11 @@ export const recurringDonations = pgTable(
     uniqueIndex("recurring_checkout_idx").on(t.stripeCheckoutSessionId),
     uniqueIndex("recurring_subscription_idx").on(t.stripeSubscriptionId),
   ],
-);
+).enableRLS();
 
 // ── Newsletter ────────────────────────────────────────────────────────────
-export const subscriberStatus = pgEnum("subscriber_status", ["subscribed", "unsubscribed"]);
+// "pending" is a double opt-in waiting for the confirmation click.
+export const subscriberStatus = pgEnum("subscriber_status", ["subscribed", "unsubscribed", "pending"]);
 
 export const newsletterSubscribers = pgTable(
   "newsletter_subscribers",
@@ -175,13 +200,14 @@ export const newsletterSubscribers = pgTable(
     source: text("source").notNull(),
     unsubscribeToken: text("unsubscribe_token").notNull(),
     subscribedAt: timestamp("subscribed_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("newsletter_email_idx").on(t.email),
     uniqueIndex("newsletter_token_idx").on(t.unsubscribeToken),
   ],
-);
+).enableRLS();
 
 // ── Petitions and pledges ─────────────────────────────────────────────────
 export const campaignSignatures = pgTable(
@@ -202,7 +228,7 @@ export const campaignSignatures = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("signatures_campaign_email_idx").on(t.campaign, t.email)],
-);
+).enableRLS();
 
 // ── News and events ───────────────────────────────────────────────────────
 export const newsPosts = pgTable(
@@ -212,12 +238,16 @@ export const newsPosts = pgTable(
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     summary: text("summary").notNull(),
+    // Markdown.
     body: text("body").notNull(),
+    imageUrl: text("image_url"),
+    imageAlt: text("image_alt"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("news_slug_idx").on(t.slug)],
-);
+).enableRLS();
 
 export const events = pgTable(
   "events",
@@ -226,14 +256,21 @@ export const events = pgTable(
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
     location: text("location").notNull(),
+    // A street address for maps and calendar files; location is the venue name.
+    address: text("address"),
     summary: text("summary").notNull(),
+    // Markdown.
     description: text("description").notNull().default(""),
+    imageUrl: text("image_url"),
+    capacity: integer("capacity"),
     published: boolean("published").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("events_slug_idx").on(t.slug), index("events_starts_idx").on(t.startsAt)],
-);
+).enableRLS();
 
 export const eventRsvps = pgTable(
   "event_rsvps",
@@ -251,7 +288,7 @@ export const eventRsvps = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("rsvps_event_email_idx").on(t.eventId, t.email)],
-);
+).enableRLS();
 
 // ── Shop ──────────────────────────────────────────────────────────────────
 export const products = pgTable(
@@ -266,11 +303,13 @@ export const products = pgTable(
     tileLabel: text("tile_label").notNull(),
     tileBackground: text("tile_background").notNull(),
     tileForeground: text("tile_foreground").notNull(),
+    // A photo replaces the coloured tile when set.
+    imageUrl: text("image_url"),
     active: boolean("active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (t) => [uniqueIndex("products_slug_idx").on(t.slug)],
-);
+).enableRLS();
 
 export const orderStatus = pgEnum("order_status", ["pending_payment", "paid", "fulfilled", "cancelled", "refunded"]);
 
@@ -289,7 +328,7 @@ export const orders = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("orders_checkout_idx").on(t.stripeCheckoutSessionId)],
-);
+).enableRLS();
 
 export const orderItems = pgTable("order_items", {
   id: id(),
@@ -302,14 +341,14 @@ export const orderItems = pgTable("order_items", {
   name: text("name").notNull(),
   unitPriceCents: integer("unit_price_cents").notNull(),
   quantity: integer("quantity").notNull(),
-});
+}).enableRLS();
 
 // ── Stripe webhook idempotency ────────────────────────────────────────────
 export const stripeEvents = pgTable("stripe_events", {
   id: text("id").primaryKey(),
   type: text("type").notNull(),
   processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}).enableRLS();
 
 // ── Volunteer shifts ──────────────────────────────────────────────────────
 // What a volunteer is doing on a shift. The colour codes it on the calendar.
@@ -323,7 +362,7 @@ export const volunteerTasks = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("volunteer_tasks_name_idx").on(t.name)],
-);
+).enableRLS();
 
 export const shiftSlot = pgEnum("shift_slot", ["morning", "afternoon", "evening"]);
 
@@ -341,7 +380,7 @@ export const shifts = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("shifts_person_slot_idx").on(t.personId, t.date, t.slot), index("shifts_date_idx").on(t.date)],
-);
+).enableRLS();
 
 // ── Promise tracker ───────────────────────────────────────────────────────
 // Safe Surrey Coalition's 2026 promises, scored against delivery in public.
@@ -368,7 +407,7 @@ export const trackerPromises = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("tracker_promises_number_idx").on(t.number)],
-);
+).enableRLS();
 
 // The record behind each score: what happened, when, and where to check it.
 export const trackerUpdates = pgTable(
@@ -386,7 +425,7 @@ export const trackerUpdates = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("tracker_updates_promise_idx").on(t.promiseId, t.date)],
-);
+).enableRLS();
 
 export const trackerAnnouncements = pgTable(
   "tracker_announcements",
@@ -401,4 +440,217 @@ export const trackerAnnouncements = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("tracker_announcements_date_title_idx").on(t.date, t.title)],
-);
+).enableRLS();
+
+// ── Admin accounts ────────────────────────────────────────────────────────
+// Each staff member has their own account and role. Sessions live in the
+// database so signing out, or deactivating an account, takes effect at once.
+export const adminRole = pgEnum("admin_role", ["owner", "admin", "organizer", "editor"]);
+
+export const adminUsers = pgTable(
+  "admin_users",
+  {
+    id: id(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    role: adminRole("role").notNull().default("editor"),
+    // scrypt hash; null until the person sets a password (they can sign in by email link).
+    passwordHash: text("password_hash"),
+    active: boolean("active").notNull().default(true),
+    invitedById: uuid("invited_by_id").references((): AnyPgColumn => adminUsers.id, { onDelete: "set null" }),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("admin_users_email_idx").on(t.email)],
+).enableRLS();
+
+export const adminSessions = pgTable(
+  "admin_sessions",
+  {
+    // A random 256-bit id; the cookie carries it with a signature.
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [index("admin_sessions_user_idx").on(t.userId)],
+).enableRLS();
+
+// Failed sign-ins, keyed by IP address and by email, so lockouts hold across
+// every server instance.
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: id(),
+    key: text("key").notNull(),
+    success: boolean("success").notNull().default(false),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("login_attempts_key_idx").on(t.key, t.at)],
+).enableRLS();
+
+// Who changed what in the admin.
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: id(),
+    userId: uuid("user_id").references(() => adminUsers.id, { onDelete: "set null" }),
+    userEmail: text("user_email"),
+    action: text("action").notNull(),
+    entity: text("entity"),
+    entityId: text("entity_id"),
+    details: jsonb("details"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_log_at_idx").on(t.at), index("audit_log_entity_idx").on(t.entity, t.entityId)],
+).enableRLS();
+
+// ── One-time links ────────────────────────────────────────────────────────
+// Sign-in links for staff and members, newsletter confirmations, membership
+// confirmations. Only a hash of the token is stored.
+export const authTokens = pgTable(
+  "auth_tokens",
+  {
+    id: id(),
+    purpose: text("purpose").notNull(),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    data: jsonb("data"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("auth_tokens_hash_idx").on(t.tokenHash), index("auth_tokens_email_idx").on(t.email, t.purpose)],
+).enableRLS();
+
+// ── Site content ──────────────────────────────────────────────────────────
+// Editable copy and structured content for the public site, one row per
+// section (hero, pillars, board, …), validated by the schemas in
+// src/lib/settings.ts. The code ships defaults; this table holds overrides.
+export const siteSettings = pgTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedById: uuid("updated_by_id").references(() => adminUsers.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
+// Free-form pages such as the privacy policy, served at /<slug>.
+export const sitePages = pgTable(
+  "site_pages",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    // Markdown.
+    body: text("body").notNull(),
+    published: boolean("published").notNull().default(false),
+    showInFooter: boolean("show_in_footer").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("site_pages_slug_idx").on(t.slug)],
+).enableRLS();
+
+// Uploaded images and files.
+export const media = pgTable(
+  "media",
+  {
+    id: id(),
+    filename: text("filename").notNull(),
+    url: text("url").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    alt: text("alt").notNull().default(""),
+    uploadedById: uuid("uploaded_by_id").references(() => adminUsers.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("media_created_idx").on(t.createdAt)],
+).enableRLS();
+
+// Staff notes on a supporter.
+export const personNotes = pgTable(
+  "person_notes",
+  {
+    id: id(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => adminUsers.id, { onDelete: "set null" }),
+    authorName: text("author_name"),
+    body: text("body").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("person_notes_person_idx").on(t.personId, t.createdAt)],
+).enableRLS();
+
+// ── Email and SMS ─────────────────────────────────────────────────────────
+export const messageStatus = pgEnum("message_status", ["queued", "sent", "failed", "skipped"]);
+export const campaignStatus = pgEnum("campaign_status", ["draft", "sending", "sent", "cancelled"]);
+
+// A newsletter or broadcast, written in the admin and sent to an audience.
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: id(),
+  subject: text("subject").notNull(),
+  preheader: text("preheader").notNull().default(""),
+  // Markdown.
+  body: text("body").notNull(),
+  // Who receives it, e.g. {"list":"newsletter"} or {"list":"members","neighbourhood":"Newton"}.
+  audience: jsonb("audience").$type<Record<string, unknown>>().notNull().default({}),
+  status: campaignStatus("status").notNull().default("draft"),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdById: uuid("created_by_id").references(() => adminUsers.id, { onDelete: "set null" }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: createdAt(),
+}).enableRLS();
+
+// Every email the site sends: transactional (kind = "welcome", "rsvp", …) and
+// campaign (campaignId set). Queued rows are sent by the cron job in batches.
+export const emailLog = pgTable(
+  "email_log",
+  {
+    id: id(),
+    to: text("to").notNull(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    campaignId: uuid("campaign_id").references(() => emailCampaigns.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    html: text("html"),
+    text: text("text"),
+    status: messageStatus("status").notNull().default("queued"),
+    providerId: text("provider_id"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("email_log_status_idx").on(t.status, t.createdAt), index("email_log_campaign_idx").on(t.campaignId), index("email_log_to_idx").on(t.to)],
+).enableRLS();
+
+export const smsLog = pgTable(
+  "sms_log",
+  {
+    id: id(),
+    to: text("to").notNull(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    status: messageStatus("status").notNull().default("queued"),
+    providerId: text("provider_id"),
+    error: text("error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("sms_log_status_idx").on(t.status, t.createdAt)],
+).enableRLS();

@@ -1,9 +1,11 @@
 import { ShiftBoard } from "@/components/admin/ShiftBoard";
 import { getDb } from "@/lib/db";
+import { requireAdmin } from "@/lib/server/admin-auth";
 import { ISO_DATE_RE, todayInSurrey, weekStart } from "@/lib/shifts";
 import { loadRoster, loadTasks, loadWeekShifts } from "@/lib/server/shifts";
 
 export default async function ShiftsPage({ searchParams }: PageProps<"/admin/shifts">) {
+  await requireAdmin("shifts");
   const { week } = await searchParams;
   const today = todayInSurrey();
   const sunday = weekStart(typeof week === "string" && ISO_DATE_RE.test(week) ? week : today);

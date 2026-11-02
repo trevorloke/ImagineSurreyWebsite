@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/lib/db";
+import { requireAdmin } from "@/lib/server/admin-auth";
 import { formatCents } from "@/lib/money";
 import { dashboardTotals, DATASETS, loadDataset, type Dataset } from "@/lib/server/admin-data";
 
@@ -23,6 +24,7 @@ function cell(key: string, value: unknown): string {
 }
 
 export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
+  await requireAdmin();
   const sp = await searchParams;
   const view = DATASETS.includes(sp.view as Dataset) ? (sp.view as Dataset) : "members";
   const db = getDb();

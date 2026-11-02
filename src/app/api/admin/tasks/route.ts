@@ -7,8 +7,8 @@ import { createTaskSchema } from "@/lib/shift-validation";
 import { fieldErrors } from "@/lib/validation";
 
 export async function POST(req: Request) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const parsed = createTaskSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Check the task.", 422, fieldErrors(parsed.error));
   const [row] = await getDb()

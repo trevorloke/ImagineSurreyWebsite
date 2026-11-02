@@ -25,7 +25,7 @@ function done() {
 
 /** Score a promise: log what happened and, optionally, change its status. */
 export async function addUpdate(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   const input = z
     .object({
       promiseId: z.uuid(),
@@ -49,14 +49,14 @@ export async function addUpdate(form: FormData) {
 }
 
 export async function deleteUpdate(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   await getDb().delete(trackerUpdates).where(eq(trackerUpdates.id, z.uuid().parse(form.get("id"))));
   done();
 }
 
 /** Set a status without an update, e.g. to correct a mistake. */
 export async function setStatus(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   const { id, status } = z.object({ id: z.uuid(), status: z.enum(statusIds) }).parse(Object.fromEntries(form));
   await getDb()
     .update(trackerPromises)
@@ -78,7 +78,7 @@ const promiseFields = z.object({
 const blankToNull = (v: string) => v || null;
 
 export async function editPromise(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   const id = z.uuid().parse(form.get("id"));
   const f = promiseFields.parse(Object.fromEntries(form));
   await getDb()
@@ -98,7 +98,7 @@ export async function editPromise(form: FormData) {
 
 /** A new commitment made after the campaign. */
 export async function addPromise(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   const input = z
     .object({
       title: z.string().trim().min(1).max(400),
@@ -122,13 +122,13 @@ export async function addPromise(form: FormData) {
 }
 
 export async function deletePromise(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   await getDb().delete(trackerPromises).where(eq(trackerPromises.id, z.uuid().parse(form.get("id"))));
   done();
 }
 
 export async function addAnnouncement(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   const input = z
     .object({
       date: isoDate,
@@ -148,7 +148,7 @@ export async function addAnnouncement(form: FormData) {
 }
 
 export async function deleteAnnouncement(form: FormData) {
-  await requireAdmin();
+  await requireAdmin("tracker");
   await getDb().delete(trackerAnnouncements).where(eq(trackerAnnouncements.id, z.uuid().parse(form.get("id"))));
   done();
 }

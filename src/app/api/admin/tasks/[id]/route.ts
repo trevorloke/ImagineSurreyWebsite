@@ -6,8 +6,8 @@ import { adminOnly, isUniqueViolation, readJson } from "@/lib/server/admin-api";
 import { updateTaskSchema } from "@/lib/shift-validation";
 
 export async function PATCH(req: Request, ctx: RouteContext<"/api/admin/tasks/[id]">) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const parsed = updateTaskSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Check the task.", 422);
@@ -22,8 +22,8 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/admin/tasks/[i
 
 // Shifts with this task stay on the calendar, uncoloured.
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/admin/tasks/[id]">) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   await getDb().delete(volunteerTasks).where(eq(volunteerTasks.id, id));
   return json({ ok: true });

@@ -7,8 +7,8 @@ import { addDays } from "@/lib/shifts";
 
 // Repeat one week's schedule in another. Shifts already in the target week stay.
 export async function POST(req: Request) {
-  const denied = await adminOnly();
-  if (denied) return denied;
+  const auth = await adminOnly("shifts");
+  if (!auth.ok) return auth.response;
   const parsed = copyWeekSchema.safeParse(await readJson(req));
   if (!parsed.success) return error("Invalid weeks.", 422);
   const { from, to } = parsed.data;

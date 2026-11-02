@@ -1,10 +1,12 @@
 import { desc } from "drizzle-orm";
 import { getDb } from "@/lib/db";
+import { requireAdmin } from "@/lib/server/admin-auth";
 import { events, newsPosts, products } from "@/lib/db/schema";
 import { formatDate, formatEventTime } from "@/lib/dates";
 import { createEvent, createNews, deleteEvent, deleteNews, setNewsPublished, updateProduct } from "./actions";
 
 export default async function AdminContent() {
+  await requireAdmin("content");
   const db = getDb();
   const [posts, allEvents, allProducts] = await Promise.all([
     db.select().from(newsPosts).orderBy(desc(newsPosts.createdAt)).limit(50),
