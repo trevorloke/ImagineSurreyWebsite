@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -93,13 +94,15 @@ export function SelectField({
 
 /** A tick box. `id` is required so error-summary links and labels can point at it. */
 export function Checkbox({
-  id,
+  id: givenId,
   name,
   children,
   error,
   hint,
   ...input
-}: { id: string; name: string; children: ReactNode; error?: string; hint?: ReactNode } & Omit<InputHTMLAttributes<HTMLInputElement>, "id" | "name" | "type">) {
+}: { id?: string; name: string; children: ReactNode; error?: string; hint?: ReactNode } & Omit<InputHTMLAttributes<HTMLInputElement>, "id" | "name" | "type">) {
+  const generatedId = useId();
+  const id = givenId ?? `${name}-${generatedId.replace(/:/g, "")}`;
   return (
     <div className="field field--check">
       <label className="check" htmlFor={id}>
