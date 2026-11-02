@@ -320,8 +320,9 @@ export async function handleInboundSms(db: Db, ctx: MessageContext & { orgPhone?
       reply = `You're opted out of ${ctx.orgName} texts and won't get any more. Reply START to opt back in.`;
       break;
     case "start":
+      // A text from the number is proof of control of it, so START may undo an earlier STOP.
       if (ids.length) {
-        for (const m of matches) await recordConsent(db, { personId: m.id, email: m.email, channel: "sms", purpose: "sms", action: "grant", wording: `Texted "${input.body.trim().slice(0, 40)}"`, source: "sms-start" });
+        for (const m of matches) await recordConsent(db, { personId: m.id, email: m.email, channel: "sms", purpose: "sms", action: "grant", wording: `Texted "${input.body.trim().slice(0, 40)}"`, source: "sms-start", verified: true });
         reply = `You're opted in to ${ctx.orgName} texts about events and actions near you. ${STOP_LINE}`;
       } else {
         reply = `Thanks! We don't have this number on file yet. Join at ${ctx.siteUrl}/#join and tick texts to get updates. ${STOP_LINE}`;
