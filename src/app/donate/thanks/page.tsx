@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
+import { NextStep } from "@/components/engage/NextStep";
 import { formatCents } from "@/lib/money";
 import { completedSession } from "@/lib/server/checkout-session";
 
@@ -22,15 +22,8 @@ export default async function DonateThanks({ searchParams }: PageProps<"/donate/
             Contributions like yours pay for the work that wins: organizers, printing, and outreach in every town centre.
             {monthly && " Your monthly gift supports the Imagine Victory Fund, our war chest for the next election."}
           </p>
-          <p className="body">The next most useful thing you can do is tell one neighbour about us.</p>
-          <div className="btn-row">
-            <Link href="/#join" className="btn btn--red btn--lg">
-              Become a member
-            </Link>
-            <Link href="/" className="btn btn--outline btn--lg">
-              Back to home
-            </Link>
-          </div>
+          {/* The payer's own completed Checkout session identifies them; nothing comes from the URL but the session id. */}
+          <NextStep completed="donation" email={session?.customer_details?.email ?? session?.customer_email ?? null} as="h2" />
         </div>
       </section>
     </>

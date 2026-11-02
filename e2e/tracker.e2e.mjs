@@ -32,7 +32,7 @@ await card.locator("textarea[name=note]").fill("Police Board approves a helicopt
 await card.locator("input[name=url]").fill("https://example.org/police-board-minutes");
 await card.locator('button:has-text("Add update")').click();
 await card.locator('[role="status"]', { hasText: "Update added" }).first().waitFor({ timeout: 15000 });
-await page.waitForLoadState("networkidle");
+await page.waitForLoadState("load");
 ok(true, "admin sees a confirmation after adding an update");
 const h = (await sql`select status, status_changed_at from tracker_promises where number = 10`)[0];
 ok(h.status === "in_progress" && h.status_changed_at !== null, "status change recorded with the date it changed");
@@ -45,7 +45,7 @@ await page.fill("#na-src", "Surrey Now-Leader, Nov 3, 2026");
 await page.fill("#na-url", "https://example.org/inaugural");
 await page.click('button:has-text("Add announcement")');
 await page.locator('[role="status"]', { hasText: "Announcement added" }).waitFor({ timeout: 15000 });
-await page.waitForLoadState("networkidle");
+await page.waitForLoadState("load");
 
 // Bad input gets a field error, not a crashed page.
 await page.fill("#na-title", "");

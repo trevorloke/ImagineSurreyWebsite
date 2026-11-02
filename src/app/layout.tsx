@@ -1,3 +1,4 @@
+import { TrackingCapture } from "@/components/engage/TrackingCapture";
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import Script from "next/script";
@@ -57,6 +58,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <a href="#main" className="skip-link">
           Skip to content
         </a>
+        {/* Remembers ?ref= and ?source= for 30 days so later sign-ups are credited. */}
+        <TrackingCapture />
         {showAnnouncement && <AnnouncementBar text={announcement.text} linkLabel={announcement.linkLabel} linkHref={announcement.linkHref} />}
         <Header />
         <main id="main" tabIndex={-1}>

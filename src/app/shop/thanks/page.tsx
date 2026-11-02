@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
+import { NextStep } from "@/components/engage/NextStep";
 import { formatCents } from "@/lib/money";
 import { completedSession } from "@/lib/server/checkout-session";
 
@@ -15,10 +15,8 @@ export default async function ShopThanks({ searchParams }: PageProps<"/shop/than
         email your receipt, and we&apos;ll be in touch when it ships.
       </PageHead>
       <section className="section">
-        <div className="container btn-row">
-          <Link href="/" className="btn btn--outline btn--lg">
-            Back to home
-          </Link>
+        <div className="container stack" style={{ gap: 20, maxWidth: 760 }}>
+          <NextStep completed="order" email={session?.customer_details?.email ?? session?.customer_email ?? null} as="h2" />
         </div>
       </section>
     </>

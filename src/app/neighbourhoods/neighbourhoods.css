@@ -123,10 +123,3 @@
   font-weight: 800;
   color: var(--navy);
 }
-
-/* Long single words ("Neighbourhoods") must fit a 360px screen. */
-.page-head .display {
-  font-size: clamp(30px, 8.4vw, 76px);
-  hyphens: auto;
-  overflow-wrap: break-word;
-}

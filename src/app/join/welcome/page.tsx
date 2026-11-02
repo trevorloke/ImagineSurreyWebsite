@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHead } from "@/components/PageHead";
+import { NextStep } from "@/components/engage/NextStep";
 import { formatDate } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { completedSession, membershipForCheckoutSession } from "@/lib/server/checkout-session";
@@ -34,16 +35,15 @@ export default async function Welcome({ searchParams }: PageProps<"/join/welcome
               right now: chip in if you can, and tell one neighbour about us.
             </p>
           )}
-          <div className="btn-row">
-            {returned ? null : (
-              <Link href="/donate" className="btn btn--red btn--lg">
-                Chip in
+          {returned ? (
+            <div className="btn-row">
+              <Link href="/events" className="btn btn--red btn--lg">
+                See upcoming events
               </Link>
-            )}
-            <Link href="/events" className={returned ? "btn btn--red btn--lg" : "btn btn--outline btn--lg"}>
-              See upcoming events
-            </Link>
-          </div>
+            </div>
+          ) : (
+            <NextStep completed="member" personId={membership?.personId ?? null} email={membership ? null : (session?.customer_details?.email ?? null)} as="h2" />
+          )}
         </div>
       </section>
     </>
