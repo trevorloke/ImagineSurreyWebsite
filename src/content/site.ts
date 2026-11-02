@@ -8,13 +8,15 @@ export const site = {
   privacyUrl: "https://imaginesurrey.ca/privacy/",
 };
 
+// The main navigation (the header). The red Donate button and the supporter
+// sign-in link sit after these.
 export const nav = [
-  { href: "/#stand", label: "What we stand for" },
-  { href: "/#about", label: "About" },
-  { href: "/news", label: "News" },
-  { href: "/events", label: "Events" },
   { href: "/tracker", label: "Promise tracker" },
-  { href: "/shop", label: "Shop" },
+  { href: "/volunteer", label: "Volunteer" },
+  { href: "/events", label: "Events" },
+  { href: "/act", label: "Act" },
+  { href: "/#join", label: "Join" },
+  { href: "/news", label: "News" },
 ];
 
 export const heroWords = [
