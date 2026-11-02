@@ -62,7 +62,8 @@ export const volunteerSignupSchema = z
     email: z.string().trim().toLowerCase().max(254).pipe(z.email("Enter a valid email address")),
     phone: optional(30),
     postalCode: z.string().trim().regex(POSTAL_CODE_RE, "Enter a postal code like V3T 1V8"),
-    consent: z.literal(true, { error: "Please tick the box so we can contact you about the shift" }),
+    // Booking a shift needs no marketing consent; these optional ticks are separate.
+    updatesConsent: z.boolean().optional().default(false),
     smsConsent: z.boolean().optional().default(false),
     // Where the link was shared and who shared it (?source=, ?ref=), carried by the form.
     source: optional(80),
@@ -70,7 +71,7 @@ export const volunteerSignupSchema = z
     website: z.string().max(0).optional(),
   })
   .strict()
-  .refine((v) => !v.smsConsent || Boolean(v.phone), { path: ["phone"], error: "Add a phone number to get text reminders" });
+  .refine((v) => !v.smsConsent || Boolean(v.phone), { path: ["phone"], error: "Add a mobile number so we can text you, or untick the text box" });
 export type VolunteerSignupInput = z.input<typeof volunteerSignupSchema>;
 
 /** The RSVP body as before, plus where the link came from. Unknown fields are still rejected. */

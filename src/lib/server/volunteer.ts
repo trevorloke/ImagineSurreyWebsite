@@ -83,24 +83,28 @@ export type SignupInput = {
   email: string;
   phone?: string;
   postalCode: string;
-  smsConsent: boolean;
-  source?: string;
-  ref?: string;
+  /** The campaign tag from the body or the tracking cookie. */
+  source?: string | null;
+  /** The referral code from the body or the tracking cookie. */
+  ref?: string | null;
 };
 
 export type SignupResult =
-  | { ok: true; shiftId: string; personId: string; opening: typeof shiftOpenings.$inferSelect; spotsLeft: number }
+  | { ok: true; shiftId: string; personId: string; opening: typeof shiftOpenings.$inferSelect; spotsLeft: number; created: boolean }
   | { ok: false; status: 404 | 409 | 410; message: string };
 
 /**
  * Put a volunteer on an opening. The person is created or filled in (never
  * overwritten), the opening row is locked while capacity is checked, and a
- * second sign-up for the same person, day and time is refused kindly. A
- * cancelled shift at that time is revived instead of duplicated.
+ * cancelled shift at that time is revived instead of duplicated. Booking needs
+ * no marketing consent; the caller records any optional ticks.
+ *
+ * Anyone can type anyone's email, so a sign-up for a person who already has a
+ * shift at that day and time gets the same answer as a new one (and nothing
+ * is written), and a full opening answers the same 409 for everyone.
  */
 export async function signUpForOpening(db: Db, input: SignupInput, today: string): Promise<SignupResult> {
   const [firstName, ...rest] = input.name.split(/\s+/);
-  const now = new Date();
   const person = await findOrCreatePerson(
     db,
     input.email,
@@ -111,8 +115,6 @@ export async function signUpForOpening(db: Db, input: SignupInput, today: string
       postalCode: normalizePostalCode(input.postalCode),
       neighbourhood: neighbourhoodForPostalCode(input.postalCode),
       interestVolunteer: true,
-      contactConsentAt: now,
-      smsConsentAt: input.smsConsent ? now : undefined,
     },
     { source: input.source ? `volunteer:${input.source}` : "volunteer", referredByCode: input.ref ?? null },
   );
@@ -122,18 +124,20 @@ export async function signUpForOpening(db: Db, input: SignupInput, today: string
     if (!opening || !opening.published) return { ok: false, status: 404, message: "That shift is no longer open for sign-ups." };
     if (opening.date < today) return { ok: false, status: 410, message: "That shift has already happened. Pick one that's coming up." };
 
-    const existing = await tx.query.shifts.findFirst({
-      where: and(eq(shifts.personId, person.id), eq(shifts.date, opening.date), eq(shifts.slot, opening.slot)),
-    });
-    if (existing && existing.status !== "cancelled") {
-      return { ok: false, status: 409, message: "You're already signed up for a shift at that time. See you there!" };
-    }
     const [{ taken }] = await tx
       .select({ taken: sql<number>`count(*)::int` })
       .from(shifts)
       .where(and(eq(shifts.openingId, opening.id), ne(shifts.status, "cancelled")));
     if (taken >= opening.capacity) {
       return { ok: false, status: 409, message: "That shift just filled up. Pick another one and we'll see you there." };
+    }
+
+    const existing = await tx.query.shifts.findFirst({
+      where: and(eq(shifts.personId, person.id), eq(shifts.date, opening.date), eq(shifts.slot, opening.slot)),
+    });
+    if (existing && existing.status !== "cancelled") {
+      // The same answer a new sign-up gets, spots left included.
+      return { ok: true, shiftId: existing.id, personId: person.id, opening, spotsLeft: spotsLeft(opening.capacity, taken + 1), created: false };
     }
 
     const values = { taskId: opening.taskId, openingId: opening.id, status: "scheduled" as const };
@@ -143,6 +147,6 @@ export async function signUpForOpening(db: Db, input: SignupInput, today: string
           .insert(shifts)
           .values({ personId: person.id, date: opening.date, slot: opening.slot, ...values })
           .returning({ id: shifts.id });
-    return { ok: true, shiftId: row.id, personId: person.id, opening, spotsLeft: spotsLeft(opening.capacity, taken + 1) };
+    return { ok: true, shiftId: row.id, personId: person.id, opening, spotsLeft: spotsLeft(opening.capacity, taken + 1), created: true };
   });
 }
