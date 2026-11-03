@@ -15,6 +15,9 @@ import "../comms.css";
 
 const when = (d: Date | null) => (d ? d.toLocaleString("en-CA", { timeZone: "America/Vancouver", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
 
+// "Send" keeps sending in the background after the response; give it time.
+export const maxDuration = 60;
+
 export default async function CampaignPage({ params, searchParams }: PageProps<"/admin/comms/[id]">) {
   const user = await requireAdmin("comms");
   const { id } = await params;

@@ -22,7 +22,8 @@ const catalogue = [
   { slug: "window-sign", name: "Window sign", priceCents: 500, tileLabel: "SkyTrain to South Surrey", tileBackground: "#FFFFFF", tileForeground: "#EF2023" },
 ];
 
-const client = postgres(url, { max: 1 });
+// prepare: false so it also works through a transaction pooler (Supabase port 6543).
+const client = postgres(url, { max: 1, prepare: false });
 const db = drizzle(client);
 await db
   .insert(products)

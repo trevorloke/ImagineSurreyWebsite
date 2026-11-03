@@ -11,7 +11,7 @@ import { STOP_LINE } from "@/lib/email/notifications";
 import { ActionError, adminAction, multi, optionalText } from "@/lib/server/actions";
 import { can, getAdminUser } from "@/lib/server/admin-auth";
 import { cancelCampaign, CommsError, countEmailAudience, countSmsAudience, loadSmsRecipients, queueCampaign, sendCampaignTest, sendSmsBroadcast } from "@/lib/server/comms";
-import { requeueEmail, sendQueued } from "@/lib/server/email";
+import { drainQueue, requeueEmail, sendQueued } from "@/lib/server/email";
 
 const audienceFields = {
   lists: multi(),
@@ -28,7 +28,7 @@ const contentFields = {
 };
 
 function sendingMessage(n: number): string {
-  return `Sending to ${n} ${n === 1 ? "person" : "people"}. The first batch goes out now and the rest follow within minutes.`;
+  return `Sending to ${n} ${n === 1 ? "person" : "people"}. They go out in batches over the next few minutes.`;
 }
 
 /** Background work after the response: never let it throw into the request. */
@@ -91,7 +91,7 @@ export const saveCampaign = adminAction(
       if (audienceIsEmpty(audience)) throw new ActionError("Choose an audience before sending.", { lists: "Choose at least one list or filter" });
       try {
         const n = await queueCampaign(db, data.id);
-        later("sendQueued", () => sendQueued(db, 100));
+        later("drainQueue", () => drainQueue(db));
         // The page swaps the composer for the progress panel, which repeats this message.
         return { ok: true, message: sendingMessage(n), redirect: `/admin/comms/${data.id}?sent=1` };
       } catch (err) {

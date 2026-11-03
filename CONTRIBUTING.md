@@ -42,7 +42,7 @@ These conventions keep the site consistent whoever (or whatever) is writing the 
 
 ## Email, SMS, files
 
-- `sendEmail(db, …)` sends now; `queueEmails` + the `/api/cron/email` job sends in bulk. Build HTML with `src/lib/email/templates.ts`; put feature-specific builders in your own file. Every bulk email carries an unsubscribe link.
+- `sendEmail(db, …)` sends now; `queueEmails` then `drainQueue` (in `after()`) sends in bulk, and the daily `/api/cron/email` job sweeps up anything left. Build HTML with `src/lib/email/templates.ts`; put feature-specific builders in your own file. Every bulk email carries an unsubscribe link.
 - `sendSms` only to people with `smsConsentAt`; end texts with "Reply STOP to opt out".
 - Uploads go through `storeFile` in `src/lib/server/storage.ts` and are recorded in `media`.
 - Staff-written text is Markdown rendered with `renderMarkdown` (sanitized). Never render raw HTML from the database.

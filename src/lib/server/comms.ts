@@ -8,6 +8,7 @@ import { classifyInbound, type InboundIntent } from "@/lib/email/inbound-sms";
 import { renderCampaignEmail, sampleMergeValues, FIRST_NAME_FALLBACK, type MergeValues } from "@/lib/email/merge";
 import { eventReminderEmail, eventReminderText, shiftReminderEmail, shiftReminderText, STOP_LINE, type ShiftForEmail } from "@/lib/email/notifications";
 import type { MessageContext } from "@/lib/email/messages";
+import { pacificDate } from "@/lib/ics";
 import { withRef } from "@/lib/share";
 import { addDays, todayInSurrey } from "@/lib/shifts";
 import { recordConsent } from "./consent";
@@ -355,7 +356,6 @@ export async function handleInboundSms(db: Db, ctx: MessageContext & { orgPhone?
 
 // ── Reminders ─────────────────────────────────────────────────────────────
 
-const HOUR = 3600_000;
 
 /**
  * The day-before reminders: RSVPs for events starting 20 to 28 hours from
@@ -374,7 +374,9 @@ export async function sendReminders(db: Db, now = new Date()): Promise<{ events:
     .from(eventRsvps)
     .innerJoin(events, eq(events.id, eventRsvps.eventId))
     .leftJoin(people, eq(people.id, eventRsvps.personId))
-    .where(and(isNull(eventRsvps.reminderSentAt), eq(events.published, true), gte(events.startsAt, new Date(now.getTime() + 20 * HOUR)), lt(events.startsAt, new Date(now.getTime() + 28 * HOUR))));
+    // Events on tomorrow's date in Surrey, so a once-a-day run reminds everyone
+    // (and the email can honestly say "tomorrow"); more frequent runs are harmless.
+    .where(and(isNull(eventRsvps.reminderSentAt), eq(events.published, true), gte(events.startsAt, pacificDate(addDays(todayInSurrey(now), 1), 0)), lt(events.startsAt, pacificDate(addDays(todayInSurrey(now), 2), 0))));
   const claimedRsvps = due.length
     ? new Set(
         (

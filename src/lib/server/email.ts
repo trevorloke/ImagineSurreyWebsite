@@ -131,6 +131,25 @@ const BATCH = 100;
  * Safe to run from several instances at once: rows are claimed with
  * SKIP LOCKED. Returns how many were sent and how many failed.
  */
+/**
+ * Keep sending queued email until the queue is empty or the time budget runs
+ * out. Called in the background right after a campaign is queued, so sending
+ * doesn't depend on a frequent scheduled job; the daily job at
+ * /api/cron/email picks up anything left over.
+ */
+export async function drainQueue(db: Db, budgetMs = 50_000): Promise<{ sent: number; failed: number; skipped: number }> {
+  const started = Date.now();
+  const totals = { sent: 0, failed: 0, skipped: 0 };
+  while (Date.now() - started < budgetMs) {
+    const r = await sendQueued(db, 100);
+    totals.sent += r.sent;
+    totals.failed += r.failed;
+    totals.skipped += r.skipped;
+    if (r.sent + r.failed + r.skipped === 0) break;
+  }
+  return totals;
+}
+
 export async function sendQueued(db: Db, limit = 300): Promise<{ sent: number; failed: number; skipped: number }> {
   const totals = { sent: 0, failed: 0, skipped: 0 };
   const touchedCampaigns = new Set<string>();

@@ -31,7 +31,7 @@ This guide takes the site from this repository to a live website. Supporter data
    - **`db:migrate`** creates every table and turns on **row-level security** for each one. On Supabase, a table without row-level security can be read by anyone with the app's public API key. With it on, only the website's own database connection can reach these rows until you allow your app in (section 4). Tables that belong to your app are not touched.
    - **`db:seed`** loads the 26 tracked promises, the six shop products and the starter volunteer tasks. Running it again never overwrites changes made in `/admin`.
 
-   Run both commands again whenever you deploy a version with new migrations in `drizzle/`.
+   After this first time, you don't need to repeat them: every **production** deploy on Vercel runs any new migrations and the seed before building (the `vercel-build` script; set `SKIP_DB_MIGRATE=1` to turn that off). If that step fails, the deploy stops and the current site stays live.
 
 ## 2. Put the website online with Vercel
 
@@ -47,10 +47,10 @@ This guide takes the site from this repository to a live website. Supporter data
    | `STRIPE_WEBHOOK_SECRET` | Leave blank for now; you fill it in at step 8 |
    | `MEMBERSHIP_FEE_CENTS` | e.g. `1000` for $10 a year, or `0` for free membership |
    | `CONTRIBUTION_LIMIT_CENTS` | `142970` ($1,429.70; check it against Elections BC each year) |
-   | `ADMIN_EMAIL` | Your email. The first sign-in with this address and `ADMIN_PASSWORD` creates the owner account |
+   | `ADMIN_EMAIL` | **Required to sign in to `/admin`.** Your email: the first sign-in with this address and `ADMIN_PASSWORD` creates the owner account |
    | `ADMIN_PASSWORD` | A long password (12+ characters) for that first sign-in. Change it afterwards under My account |
    | `ADMIN_SESSION_SECRET` | A long random string, e.g. from `openssl rand -hex 32`. It also signs supporter sign-ins |
-   | `CRON_SECRET` | A long random string. Vercel sends it to the scheduled jobs (email queue every minute, reminders every hour) |
+   | `CRON_SECRET` | A long random string. Vercel sends it to the two daily jobs: day-before reminders (about 10 a.m. Pacific) and a sweep of any email still queued. These work on every Vercel plan |
    | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` | Email (step 9a). Optional at first: without them nothing is sent, but every message is still logged |
    | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Texts (step 9b). Optional |
    | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET` | Image uploads in Admin → Media (step 9c). Optional |
@@ -82,7 +82,7 @@ This guide takes the site from this repository to a live website. Supporter data
 9a. **Email (Resend).** Create a Resend account, verify your sending domain (add the DNS records it shows, and set up DMARC), and put the API key in `RESEND_API_KEY`. With email on:
    - Newsletter sign-ups are double opt-in: people join only when they click the confirmation link, which is valid for 72 hours.
    - Supporters get receipts and next steps, RSVP and shift confirmations with calendar files, reminders the day before, sign-in links for `/me`, and promise-follow alerts.
-   - Campaigns from Admin → Email and texts are queued and sent every minute by `/api/cron/email`, and each carries the recipient's one-click unsubscribe link.
+   - Campaigns from Admin → Email and texts start sending the moment you press Send and keep going in the background. A daily job (`/api/cron/email`) sends anything left over. Each email carries the recipient's one-click unsubscribe link.
 
    Admin → Integrations has a "Send me a test email" button.
 

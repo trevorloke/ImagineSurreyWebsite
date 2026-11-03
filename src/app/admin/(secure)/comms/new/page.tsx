@@ -5,6 +5,9 @@ import { requireAdmin } from "@/lib/server/admin-auth";
 import { loadAudienceOptions } from "@/lib/server/comms";
 import "../comms.css";
 
+// "Send" keeps sending in the background after the response; give it time.
+export const maxDuration = 60;
+
 export default async function NewCampaign() {
   const user = await requireAdmin("comms");
   const options = await loadAudienceOptions(getDb());
