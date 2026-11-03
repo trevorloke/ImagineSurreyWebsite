@@ -4,18 +4,24 @@ import { DonateForm } from "@/components/forms/DonateForm";
 import type { Choice } from "@/components/forms/AmountPicker";
 import { PageHead } from "@/components/PageHead";
 import { Alert } from "@/components/forms/Field";
-import { DEFAULT_CENTS, starClubCents } from "@/lib/contributions";
+import { DEFAULT_CENTS, pacificYearMonth, starClubCents } from "@/lib/contributions";
 import { env } from "@/lib/env";
+import { formatCents } from "@/lib/money";
+import { getSettings } from "@/lib/server/settings";
 
 export const metadata: Metadata = { title: "Chip in", description: "Contribute to Imagine Surrey, one-time or monthly." };
 
 export default async function DonatePage({ searchParams }: PageProps<"/donate">) {
   await connection();
-  const sp = await searchParams;
+  const [sp, settings] = await Promise.all([searchParams, getSettings()]);
+  const { donate, org } = settings;
+  // One-time is the default. Monthly is only selected here when the person
+  // chose it themselves on the home page widget, which links with ?frequency=.
   const frequency = sp.frequency === "monthly" ? "monthly" : "one_time";
   const tier = sp.tier === "star" || sp.tier === "superstar" ? sp.tier : "standard";
   const amount = Number(sp.amount);
   const limitCents = env.contributionLimitCents;
+  const { year } = pacificYearMonth(new Date());
   const initial: Choice = {
     frequency,
     tier,
@@ -29,30 +35,27 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
 
   return (
     <>
-      <PageHead title="Chip in">
-        In BC, elector organizations can only take contributions from individuals. No corporate money, no union money. Imagine Surrey runs on Surrey
-        residents who give what they can.
-      </PageHead>
+      <PageHead title={donate.title}>{donate.intro}</PageHead>
       <section className="section">
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 320px", gap: 16 }}>
-            {sp.cancelled && <Alert tone="note">Your payment was cancelled and you haven&apos;t been charged. You can try again whenever you&apos;re ready.</Alert>}
+            {sp.cancelled && <Alert tone="note">Your payment was cancelled and you haven’t been charged. You can try again whenever you’re ready.</Alert>}
             <h2 className="h3" style={{ fontSize: 26 }}>
               Where your money goes
             </h2>
-            <p className="body">Organizers, printing, outreach in every town centre, and keeping the lights on.</p>
+            <p className="body">{donate.text}</p>
             <h2 className="h3" style={{ fontSize: 26, marginTop: 12 }}>
               Who can give
             </h2>
             <p className="body">
-              Contributions must come from an individual who lives in BC and is a Canadian citizen or permanent resident, using their own money. The
-              annual limit is set by BC&apos;s Local Elections Campaign Financing Act. Membership fees count toward it. Contributions aren&apos;t tax deductible.
+              Contributions must come from an individual who lives in BC and is a Canadian citizen or permanent resident, using their own money. The limit
+              under BC’s Local Elections Campaign Financing Act is {formatCents(limitCents)} per person in {year}. Membership fees count toward it.
+              Contributions aren’t tax deductible.
             </p>
-            <p className="body">
-              If a payment ever takes you over the annual limit, we return the extra automatically.
-            </p>
+            <p className="body">If a payment ever takes you over the annual limit, we return the extra automatically.</p>
+            {org.authorizationLine && <p className="small">{org.authorizationLine}</p>}
           </div>
-          <DonateForm initial={initial} limitCents={limitCents} />
+          <DonateForm initial={initial} limitCents={limitCents} year={year} monthlyNote={donate.monthlyNote} clubNote={donate.clubNote} />
         </div>
       </section>
     </>

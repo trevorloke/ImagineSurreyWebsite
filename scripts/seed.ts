@@ -1,8 +1,13 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { campaigns, products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { seedCampaigns } from "../src/content/campaigns-seed";
 import { seedAnnouncements, seedPromises, seedTests } from "../src/content/tracker-seed";
 import { DEFAULT_TASKS } from "../src/lib/shifts";
+import { seed as seedOpenings } from "../src/content/seeds/openings";
+import { seed as seedTrackerDates } from "../src/content/seeds/tracker";
+import { seed as seedComms } from "../src/content/seeds/comms";
+import { seed as seedPages } from "../src/content/seeds/pages";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("Set DATABASE_URL first (see .env.example).");
@@ -17,7 +22,8 @@ const catalogue = [
   { slug: "window-sign", name: "Window sign", priceCents: 500, tileLabel: "SkyTrain to South Surrey", tileBackground: "#FFFFFF", tileForeground: "#EF2023" },
 ];
 
-const client = postgres(url, { max: 1 });
+// prepare: false so it also works through a transaction pooler (Supabase port 6543).
+const client = postgres(url, { max: 1, prepare: false });
 const db = drizzle(client);
 await db
   .insert(products)
@@ -40,5 +46,15 @@ await db
   )
   .onConflictDoNothing({ target: trackerPromises.number });
 await db.insert(trackerAnnouncements).values(seedAnnouncements).onConflictDoNothing();
+// Dates and town centres for promises seeded before those columns existed.
+await seedTrackerDates(db);
+// Two sample shift openings next Saturday, only on an empty table.
+await seedOpenings(db);
+// One sample draft email campaign, only when there are none.
+await seedComms(db);
+// Draft privacy policy and accessibility pages (only when missing).
+await seedPages(db);
+// The pledge and petition the home page is built around.
+await db.insert(campaigns).values(seedCampaigns).onConflictDoNothing({ target: campaigns.slug });
 await client.end();
-console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, and ${seedPromises.length} tracked promises.`);
+console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, ${seedPromises.length} tracked promises and ${seedCampaigns.length} campaigns.`);

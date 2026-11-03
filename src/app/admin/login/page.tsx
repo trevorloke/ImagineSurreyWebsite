@@ -1,30 +1,62 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { isAdmin } from "@/lib/server/admin-auth";
+import { getAdminUser } from "@/lib/server/admin-auth";
 
 export const metadata: Metadata = { title: "Admin sign in", robots: { index: false } };
 
+const MESSAGES: Record<string, { tone: "error" | "note"; text: string }> = {
+  invalid: { tone: "error", text: "That email and password don't match." },
+  locked: { tone: "error", text: "Too many attempts. Try again in 15 minutes, or use an email link." },
+  link: { tone: "error", text: "That sign-in link has expired or was already used. Ask for a new one." },
+  "email-not-configured": { tone: "error", text: "Email sending isn't set up yet, so sign-in links can't be sent. Use your password." },
+  sent: { tone: "note", text: "If that address belongs to a staff account, a sign-in link is on its way. It works once and expires in 20 minutes." },
+  signedout: { tone: "note", text: "You're signed out." },
+};
+
 export default async function AdminLogin({ searchParams }: PageProps<"/admin/login">) {
-  if (await isAdmin()) redirect("/admin");
-  const { error } = await searchParams;
+  if (await getAdminUser()) redirect("/admin");
+  const sp = await searchParams;
+  const message = MESSAGES[typeof sp.error === "string" ? sp.error : typeof sp.sent === "string" ? "sent" : typeof sp.signedout === "string" ? "signedout" : ""];
+  const next = typeof sp.next === "string" && /^\/admin(\/|$)/.test(sp.next) ? sp.next : "/admin";
+  const email = typeof sp.email === "string" ? sp.email : "";
+
   return (
     <section className="section section--surface">
-      <div className="container" style={{ maxWidth: 440 }}>
+      <div className="container stack" style={{ maxWidth: 440, gap: 20 }}>
+        <h1 className="h3" style={{ fontSize: 26 }}>
+          Staff sign in
+        </h1>
+        {message && (
+          <div role={message.tone === "error" ? "alert" : "status"} className={`alert ${message.tone === "note" ? "alert--note" : ""}`}>
+            <span aria-hidden="true" className="alert-icon">
+              !
+            </span>
+            <span>{message.text}</span>
+          </div>
+        )}
         <form method="post" action="/api/admin/login" className="form-card">
-          <h1 className="h3" style={{ fontSize: 26 }}>
-            Admin sign in
-          </h1>
+          <input type="hidden" name="next" value={next} />
+          <div className="field">
+            <label htmlFor="email">Email</label>
+            <input id="email" name="email" type="email" className="input" required autoComplete="username" defaultValue={email} />
+          </div>
           <div className="field">
             <label htmlFor="password">Password</label>
             <input id="password" name="password" type="password" className="input" required autoComplete="current-password" />
           </div>
-          {error && (
-            <p className="field-error" role="alert">
-              {error === "locked" ? "Too many attempts. Try again in 15 minutes." : "That password isn't right."}
-            </p>
-          )}
           <button type="submit" className="btn btn--navy btn--lg">
             Sign in
+          </button>
+        </form>
+        <form method="post" action="/api/admin/magic-link" className="form-card" style={{ gap: 12 }}>
+          <input type="hidden" name="next" value={next} />
+          <p style={{ margin: 0, fontWeight: 700, color: "var(--navy)" }}>Or get a sign-in link by email</p>
+          <div className="field">
+            <label htmlFor="link-email">Email</label>
+            <input id="link-email" name="email" type="email" className="input" required autoComplete="username" defaultValue={email} />
+          </div>
+          <button type="submit" className="btn btn--outline">
+            Email me a link
           </button>
         </form>
       </div>

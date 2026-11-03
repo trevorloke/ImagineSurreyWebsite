@@ -1,27 +1,100 @@
-import type { NextRequest } from "next/server";
+import { and, eq } from "drizzle-orm";
+import { after, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
-import { campaignSignatures } from "@/lib/db/schema";
-import { normalizePostalCode } from "@/lib/neighbourhoods";
-import { json, parseBody } from "@/lib/server/api";
+import { campaignSignatures, campaigns, newsletterSubscribers } from "@/lib/db/schema";
+import { neighbourhoodForPostalCode, normalizePostalCode } from "@/lib/neighbourhoods";
+import { error, json, parseBody } from "@/lib/server/api";
+import { creditReferral, sourceLabel, trackingFromRequest } from "@/lib/server/attribution";
+import { invalidate, TAGS } from "@/lib/server/cache";
+import { countSignatures } from "@/lib/server/campaigns";
+import { CONSENT_WORDING, consentMeta, recordConsent } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
 import { subscribe } from "@/lib/server/newsletter";
-import { upsertPerson } from "@/lib/server/people";
+import { normalizePhone } from "@/lib/server/sms";
+import { notifySignature } from "@/lib/server/notifications";
+import { findOrCreatePerson } from "@/lib/server/people";
 import { signatureSchema } from "@/lib/validation";
 
-// Petitions and pledges. Signing twice is harmless: the first signature stands.
+/**
+ * Sign a petition or pledge. Signing twice is harmless: the first signature
+ * stands and the count never double-counts an address. Email and text consent
+ * come only from the person's own ticks and are written to the consent ledger
+ * with the wording they saw.
+ */
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const parsed = await parseBody(req, signatureSchema, "signatures");
     if (!parsed.ok) return parsed.response;
-    const { campaign, firstName, lastName, email, address, phone, answer } = parsed.data;
-    const postalCode = normalizePostalCode(parsed.data.postalCode);
+    const data = parsed.data;
     const db = getDb();
-    const person = await upsertPerson(db, email, { firstName, lastName, postalCode, address, phone, contactConsentAt: new Date() });
-    await db
+
+    const campaign = await db.query.campaigns.findFirst({ where: and(eq(campaigns.slug, data.campaign), eq(campaigns.active, true)) });
+    if (!campaign) return error("This campaign is closed.", 404);
+    const slug = campaign.slug;
+
+    const tracking = trackingFromRequest(req, data);
+    const source = sourceLabel(`petition:${slug}`, tracking);
+    const postalCode = normalizePostalCode(data.postalCode);
+    const neighbourhood = neighbourhoodForPostalCode(postalCode);
+    const { firstName, lastName, email, address, phone, answer } = data;
+
+    const person = await findOrCreatePerson(
+      db,
+      email,
+      { firstName, lastName, postalCode, address, phone, neighbourhood, locale: data.locale },
+      { source, referredByCode: tracking.ref },
+    );
+    await creditReferral(db, person.id, tracking.ref);
+
+    const [inserted] = await db
       .insert(campaignSignatures)
-      .values({ campaign, personId: person.id, firstName, lastName, email, postalCode, address, phone, answer })
-      .onConflictDoNothing();
-    await subscribe(db, email, campaign, person.id);
-    return json({ ok: true });
+      .values({ campaign: slug, personId: person.id, firstName, lastName, email, postalCode, address, phone, answer, neighbourhood, source })
+      .onConflictDoNothing()
+      .returning({ id: campaignSignatures.id });
+
+    const meta = consentMeta(req);
+    if (data.updatesConsent) {
+      const granted = await recordConsent(db, {
+        personId: person.id,
+        email,
+        channel: "email",
+        purpose: "updates",
+        action: "grant",
+        wording: CONSENT_WORDING.updates,
+        source: `petition:${slug}`,
+        ...meta,
+      });
+      // A refused grant (the address withdrew earlier) must not re-subscribe it either, and an
+      // address that unsubscribed is only re-subscribed by its own confirmation click.
+      const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, email.toLowerCase()), columns: { status: true } });
+      if (granted && existing?.status !== "unsubscribed") await subscribe(db, email, `petition:${slug}`, person.id);
+    }
+    // Texts only to a number typed into this form, never one already on file.
+    if (data.smsConsent && normalizePhone(phone)) {
+      await recordConsent(db, {
+        personId: person.id,
+        email,
+        channel: "sms",
+        purpose: "sms",
+        action: "grant",
+        wording: CONSENT_WORDING.sms,
+        source: `petition:${slug}`,
+        ...meta,
+      });
+    }
+
+    invalidate(TAGS.counters);
+    if (inserted) {
+      after(async () => {
+        try {
+          await notifySignature(db, { signatureId: inserted.id });
+        } catch (err) {
+          console.error("notifySignature failed", err);
+        }
+      });
+    }
+
+    const count = await countSignatures(slug);
+    return json({ ok: true, campaign: { slug, title: campaign.title, kind: campaign.kind, shareText: campaign.shareText }, count });
   });
 }

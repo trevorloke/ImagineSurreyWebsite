@@ -1,0 +1,127 @@
+/* Petitions and pledges: the list, the campaign page and the milestone bar. */
+.act-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+.act-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.act-card h2 a {
+  text-decoration: none;
+}
+.act-card h2 a:hover {
+  text-decoration: underline;
+}
+.act-card .btn {
+  align-self: flex-start;
+}
+.act-split {
+  align-items: flex-start;
+}
+.act-main {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.act-statement {
+  margin: 0;
+  padding: 18px 22px;
+  border-left: 6px solid var(--yellow);
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.act-statement p {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--navy);
+}
+.act-statement .eyebrow {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* Milestone bar */
+.milestone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.milestone-text {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.milestone-count {
+  font-size: 30px;
+  font-weight: 900;
+  color: var(--navy);
+}
+.milestone-bar {
+  width: 100%;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--pale-blue);
+  border: 1px solid var(--field-border);
+}
+.milestone-fill {
+  height: 100%;
+  min-width: 0;
+  background: var(--navy);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .milestone-fill {
+    transition: none;
+  }
+}
+.milestone-next {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Per-town-centre counts */
+.hood-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px 16px;
+}
+.hood-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.hood-row dt {
+  font-weight: 600;
+}
+.hood-row dd {
+  margin: 0;
+  font-weight: 800;
+  color: var(--navy);
+}
+.act-latest {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.share-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.share-links .btn {
+  min-height: 44px;
+}

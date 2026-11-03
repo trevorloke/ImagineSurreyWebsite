@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { PROMISE_STATUSES, STATUS_BY_ID, type PromiseStatus } from "@/lib/tracker";
+import { DueChip } from "./DueChip";
+import { dueInfo, neighbourhoodHref, PROMISE_STATUSES, STATUS_BY_ID, type PromiseStatus, type TrackerSource } from "@/lib/tracker";
 
-export type TrackerSource = { label: string; url?: string };
+export type { TrackerSource } from "@/lib/tracker";
 
 export type PublicPromise = {
   id: string;
@@ -17,6 +19,9 @@ export type PublicPromise = {
   testPartly: string | null;
   testBroken: string | null;
   testRecord: string | null;
+  promisedOn: string | null;
+  targetDate: string | null;
+  neighbourhoods: string[];
   updates: { id: string; date: string; status: PromiseStatus | null; note: string; url: string | null }[];
 };
 
@@ -51,7 +56,23 @@ export function SourceLinks({ sources }: { sources: TrackerSource[] }) {
   );
 }
 
-export function PromiseList({ promises }: { promises: PublicPromise[] }) {
+export function NeighbourhoodChips({ neighbourhoods, label }: { neighbourhoods: string[]; label?: string }) {
+  if (neighbourhoods.length === 0) return null;
+  return (
+    <ul className="hood-chips" aria-label={label ?? "Neighbourhoods"}>
+      {neighbourhoods.map((n) => (
+        <li key={n}>
+          <Link href={neighbourhoodHref(n)} className="hood-chip">
+            {n}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** `today` is the calendar date in Surrey, passed from the server so the countdown is the same on both ends. */
+export function PromiseList({ promises, today }: { promises: PublicPromise[]; today: string }) {
   const [status, setStatus] = useState<PromiseStatus | "all">("all");
   const [area, setArea] = useState("all");
   const [query, setQuery] = useState("");
@@ -73,7 +94,7 @@ export function PromiseList({ promises }: { promises: PublicPromise[] }) {
     (p) =>
       (status === "all" || p.status === status) &&
       (area === "all" || p.area === area) &&
-      (!q || `${p.title} ${p.specifics} ${p.area}`.toLowerCase().includes(q)),
+      (!q || `${p.title} ${p.specifics} ${p.area} ${p.neighbourhoods.join(" ")}`.toLowerCase().includes(q)),
   );
 
   const toggle = (n: number) =>
@@ -123,6 +144,7 @@ export function PromiseList({ promises }: { promises: PublicPromise[] }) {
         {shown.map((p) => {
           const isOpen = open.has(p.number);
           const hasTest = Boolean(p.testKept);
+          const due = dueInfo({ status: p.status, targetDate: p.targetDate, promisedOn: p.promisedOn, hasRecord: p.updates.length > 0 }, today);
           return (
             <li key={p.id} id={`promise-${p.number}`} className={`promise-card status-${p.status}`}>
               <div className="promise-head">
@@ -132,14 +154,18 @@ export function PromiseList({ promises }: { promises: PublicPromise[] }) {
                 <div className="promise-main">
                   <div className="promise-meta">
                     <StatusBadge status={p.status} />
+                    <DueChip info={due} />
                     <span className="promise-area">{p.area}</span>
                     {p.updates[0] && <span className="promise-updated">Updated {formatDate(p.updates[0].date)}</span>}
                   </div>
                   <h3 className="promise-title">
                     <span className="visually-hidden">Promise {p.number}: </span>
-                    {p.title}
+                    <Link href={`/tracker/${p.number}`} className="promise-title-link">
+                      {p.title}
+                    </Link>
                   </h3>
                   {p.specifics && <p className="promise-specifics">{p.specifics}</p>}
+                  <NeighbourhoodChips neighbourhoods={p.neighbourhoods} label={`Neighbourhoods for promise ${p.number}`} />
                 </div>
               </div>
               <button type="button" className="promise-toggle" aria-expanded={isOpen} aria-controls={`promise-${p.number}-detail`} onClick={() => toggle(p.number)}>
@@ -210,9 +236,11 @@ export function PromiseList({ promises }: { promises: PublicPromise[] }) {
                       </ol>
                     )}
                   </div>
-                  <a className="small" href={`#promise-${p.number}`}>
-                    Link to this promise
-                  </a>
+                  <div className="promise-links">
+                    <Link href={`/tracker/${p.number}#follow`}>Follow this promise</Link>
+                    <Link href={`/tracker/${p.number}`}>Full record and share</Link>
+                    <a href={`#promise-${p.number}`}>Link to this promise</a>
+                  </div>
                 </div>
               )}
             </li>

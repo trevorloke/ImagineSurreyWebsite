@@ -1,31 +1,66 @@
 "use client";
 
+import { CONSENT_WORDING } from "@/lib/consent-wording";
 import { useState } from "react";
-import { MIN_DONATION_CENTS } from "@/lib/contributions";
+import { MIN_DONATION_CENTS, starClubCents } from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
+import { donationSchema } from "@/lib/validation";
 import { AmountPicker, choiceLabel, type Choice } from "./AmountPicker";
-import { Alert, Checkbox, Honeypot, TextField } from "./Field";
+import { Checkbox, ErrorSummary, Honeypot, PostalCodeField, SubmitButton, TextField, TrackingFields } from "./Field";
 import { readForm, useApiForm } from "./useApiForm";
 
-export function DonateForm({ initial, limitCents }: { initial: Choice; limitCents: number }) {
+const CUSTOM_ID = "amount-custom";
+
+export function DonateForm({
+  initial,
+  limitCents,
+  year,
+  monthlyNote,
+  clubNote,
+}: {
+  initial: Choice;
+  limitCents: number;
+  /** The contribution year shown next to the limit. */
+  year?: number;
+  monthlyNote?: string;
+  clubNote?: string;
+}) {
   const [choice, setChoice] = useState<Choice>(initial);
-  const { submit, pending, error, fields } = useApiForm<{ url: string }>("/api/donations/checkout");
-  const tooSmall = choice.tier === "standard" && choice.amountCents < MIN_DONATION_CENTS;
+  const [customError, setCustomError] = useState<string | null>(null);
+  const { submit, pending, error, fields, summaryRef, fail } = useApiForm<{ url: string }>("/api/donations/checkout", { schema: donationSchema });
+  const summaryFields = customError ? { [CUSTOM_ID]: customError, ...fields } : fields;
+
+  function amountProblem(): string | null {
+    if (customError) return customError;
+    if (choice.tier !== "standard") return null;
+    if (choice.amountCents < MIN_DONATION_CENTS) return `The smallest contribution we can take online is ${formatCents(MIN_DONATION_CENTS)}.`;
+    const max = starClubCents(choice.frequency, limitCents);
+    if (choice.amountCents > max) return choice.frequency === "monthly" ? `The most you can give monthly is ${formatCents(max)} a month.` : `The most you can give is ${formatCents(limitCents)} a year under BC law.`;
+    return null;
+  }
 
   return (
     <form
       className="donate-card"
       style={{ flex: "1 1 520px" }}
+      noValidate
+      aria-busy={pending || undefined}
       onSubmit={async (e) => {
         e.preventDefault();
-        if (tooSmall) return;
+        if (pending) return;
+        const problem = amountProblem();
+        if (problem) {
+          setCustomError(problem);
+          fail("Please check the highlighted fields.", { [CUSTOM_ID]: problem });
+          return;
+        }
         const result = await submit({ ...readForm(e.currentTarget), ...choice });
         if (result) window.location.assign(result.url);
       }}
     >
       <Honeypot />
-      <AmountPicker choice={choice} onChange={setChoice} limitCents={limitCents} allowCustom />
-      {tooSmall && <p className="field-error">The smallest contribution we can take online is {formatCents(MIN_DONATION_CENTS)}.</p>}
+      <TrackingFields locale={false} />
+      <AmountPicker choice={choice} onChange={setChoice} onCustomError={setCustomError} limitCents={limitCents} allowCustom monthlyNote={monthlyNote} clubNote={clubNote} />
 
       <fieldset className="group" style={{ gap: 14 }}>
         <legend style={{ fontSize: 18, fontWeight: 700, color: "var(--navy)" }}>Your details</legend>
@@ -43,33 +78,33 @@ export function DonateForm({ initial, limitCents }: { initial: Choice; limitCent
         <TextField id="d-address" name="address" label="Street address" required autoComplete="street-address" error={fields.address} />
         <div className="form-row">
           <TextField id="d-city" name="city" label="City" required defaultValue="Surrey" autoComplete="address-level2" error={fields.city} />
-          <TextField id="d-postal" name="postalCode" label="Postal code" required placeholder="V3T 1A1" autoComplete="postal-code" error={fields.postalCode} />
+          <PostalCodeField id="d-postal" required error={fields.postalCode} hint="A BC postal code" />
         </div>
       </fieldset>
 
       <fieldset className="group">
         <legend>I confirm that</legend>
-        <Checkbox name="attestCitizenOrPR" required error={fields.attestCitizenOrPR}>
-          I&apos;m a Canadian citizen or permanent resident
+        <Checkbox id="d-attest-citizen" name="attestCitizenOrPR" required error={fields.attestCitizenOrPR}>
+          I’m a Canadian citizen or permanent resident
         </Checkbox>
-        <Checkbox name="attestBcResident" required error={fields.attestBcResident}>
+        <Checkbox id="d-attest-bc" name="attestBcResident" required error={fields.attestBcResident}>
           I live in British Columbia
         </Checkbox>
-        <Checkbox name="attestOwnFunds" required error={fields.attestOwnFunds}>
+        <Checkbox id="d-attest-funds" name="attestOwnFunds" required error={fields.attestOwnFunds}>
           This contribution is my own money, and no one will pay me back for it
         </Checkbox>
       </fieldset>
-      <Checkbox name="newsletter" defaultChecked>
-        Send me the Imagine Surrey newsletter. I can unsubscribe anytime.
+      <Checkbox id="d-newsletter" name="newsletter" error={fields.newsletter}>
+        {CONSENT_WORDING.newsletter}
       </Checkbox>
 
-      {error && <Alert>{error}</Alert>}
-      <button type="submit" className="btn btn--red btn--xl btn--block" disabled={pending || tooSmall}>
-        {pending ? "Taking you to secure checkout…" : `Donate ${choiceLabel(choice, limitCents)}`}
-      </button>
+      <ErrorSummary ref={summaryRef} error={error} fields={summaryFields} />
+      <SubmitButton pending={pending} className="btn btn--red btn--xl btn--block" pendingLabel="Taking you to secure checkout…">
+        Donate {choiceLabel(choice, limitCents)}
+      </SubmitButton>
       <p className="small">
-        You&apos;ll pay securely with Stripe. {choice.frequency === "monthly" && "You can cancel a monthly gift anytime by emailing us. "}Contributions can&apos;t
-        exceed {formatCents(limitCents)} a year under BC&apos;s Local Elections Campaign Financing Act, and aren&apos;t tax deductible.
+        You’ll pay securely with Stripe. {choice.frequency === "monthly" && "You can cancel a monthly gift at any time by emailing us. "}Contributions can’t exceed{" "}
+        {formatCents(limitCents)} {year ? `in ${year}` : "a year"} under BC’s Local Elections Campaign Financing Act, and aren’t tax deductible.
       </p>
     </form>
   );

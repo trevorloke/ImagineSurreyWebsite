@@ -3,6 +3,9 @@
   --navy-dark: #00285a;
   --red: #ef2023;
   --red-hover: #d81b1e;
+  /* Red for fills with white text on them: 5.1:1, where #ef2023 is 4.3:1. */
+  --red-fill: #d81b1e;
+  --red-fill-hover: #b5151a;
   --yellow: #fff100;
   --yellow-hover: #fff766;
   --yellow-pale: #fff9b3;
@@ -52,9 +55,11 @@ a:hover {
   color: var(--red-hover);
 }
 
+/* Two-tone so it shows on navy, white, grey and yellow alike. */
 :focus-visible {
-  outline: 3px solid var(--yellow);
+  outline: 3px solid var(--navy);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--yellow);
 }
 
 section[id] {
@@ -108,7 +113,7 @@ section[id] {
   padding: 88px 24px;
 }
 .section--red {
-  background: var(--red);
+  background: var(--red-fill);
   color: #fff;
   padding: 72px 24px;
 }
@@ -289,11 +294,11 @@ section[id] {
   width: 100%;
 }
 .btn--red {
-  background: var(--red);
+  background: var(--red-fill);
   color: #fff;
 }
 .btn--red:hover:not(:disabled) {
-  background: var(--red-hover);
+  background: var(--red-fill-hover);
   color: #fff;
 }
 .btn--yellow {
@@ -730,7 +735,7 @@ select.input {
   padding: 0 10px;
 }
 .input::placeholder {
-  color: var(--field-border);
+  color: var(--muted);
 }
 .input[aria-invalid="true"] {
   border-color: var(--red);
@@ -1587,6 +1592,12 @@ a.product:hover {
 .page-head {
   padding: 64px 24px 56px;
 }
+/* Long single words ("Neighbourhoods") must fit a 360px phone. */
+.page-head .display {
+  font-size: clamp(30px, 6vw, 76px);
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
 .prose {
   max-width: 720px;
   font-size: 18px;
@@ -1886,8 +1897,14 @@ a.product:hover {
   font-weight: 600;
 }
 .roster-drop-hint {
-  margin-top: auto;
-  padding-top: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  text-align: center;
+}
+.roster.is-drop .roster-drop-hint {
+  border-color: var(--red);
 }
 .shift-grid-wrap {
   flex: 1 1 auto;
@@ -2475,8 +2492,15 @@ a.product:hover {
   min-height: 52px;
   border-bottom: 1px solid var(--surface);
 }
-.timeline-row.is-past {
-  opacity: 0.55;
+/* Past dates recede without dropping below AA contrast. */
+.timeline-row.is-past .timeline-label,
+.timeline-row.is-past .timeline-date,
+.timeline-row.is-past .timeline-note {
+  color: #5b6577;
+}
+.timeline-row.is-past .timeline-point,
+.timeline-row.is-past .timeline-range {
+  opacity: 0.5;
 }
 .timeline-label {
   display: flex;

@@ -8,7 +8,10 @@ import { getStripe, type Stripe } from "@/lib/stripe";
 // Stripe → Dashboard → Developers → Webhooks. Subscribe this endpoint to:
 // checkout.session.completed, checkout.session.async_payment_succeeded,
 // checkout.session.async_payment_failed, checkout.session.expired,
-// invoice.paid, customer.subscription.deleted, charge.refunded
+// invoice.paid, customer.subscription.updated, customer.subscription.paused,
+// customer.subscription.resumed, customer.subscription.deleted, charge.refunded.
+// Set the endpoint's API version to the SDK's pinned version (see SETUP.md):
+// objects delivered in another version's shape are re-read from Stripe.
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature");
   if (!signature) return error("Missing Stripe signature.", 400);

@@ -17,7 +17,11 @@ const hits = new Map<string, { count: number; resetAt: number }>();
 
 export function rateLimited(req: NextRequest, bucket: string, limit = 10, windowMs = 60_000): boolean {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
-  const key = `${bucket}:${ip}`;
+  return keyRateLimited(`${bucket}:${ip}`, limit, windowMs);
+}
+
+/** The same fixed-window limiter for any key, e.g. one email address across every IP. */
+export function keyRateLimited(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
   const entry = hits.get(key);
   if (!entry || entry.resetAt < now) {

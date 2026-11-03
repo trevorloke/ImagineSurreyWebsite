@@ -7,10 +7,14 @@ import { scoringNote, sourceGroups, sourcesNote, trackerHighlights, trackerIntro
 import { todayInSurrey } from "@/lib/shifts";
 import { countByStatus, PROMISE_STATUSES } from "@/lib/tracker";
 import { loadTracker } from "@/lib/server/tracker";
+import "./tracker.css";
+
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Safe Surrey promise tracker",
   description: "Every promise Doug McCallum and the Safe Surrey Coalition made in the 2026 campaign, tracked against delivery.",
+  alternates: { canonical: "/tracker", types: { "application/rss+xml": "/tracker/feed.xml" } },
 };
 
 const formatDate = (iso: string) =>
@@ -18,6 +22,7 @@ const formatDate = (iso: string) =>
 
 export default async function TrackerPage() {
   const { promises, announcements, lastUpdated } = await loadTracker();
+  const today = todayInSurrey();
   const counts = countByStatus(promises.map((p) => p.status));
   const total = promises.length;
   const publicPromises: PublicPromise[] = promises.map((p) => ({
@@ -32,6 +37,9 @@ export default async function TrackerPage() {
     testPartly: p.testPartly,
     testBroken: p.testBroken,
     testRecord: p.testRecord,
+    promisedOn: p.promisedOn,
+    targetDate: p.targetDate,
+    neighbourhoods: p.neighbourhoods,
     updates: p.updates.map((u) => ({ id: u.id, date: u.date, status: u.status, note: u.note, url: u.url })),
   }));
 
@@ -68,6 +76,22 @@ export default async function TrackerPage() {
               {lastUpdated ? `Last updated ${formatDate(lastUpdated)}.` : "Tracking began October 18, 2026."} Scored against the public record, with sources for every line.
             </p>
           </div>
+          <ul className="tracker-toolbar" aria-label="Tracker tools">
+            <li>
+              <Link href="/tracker/methodology">How the promises are scored</Link>
+            </li>
+            <li>
+              <a href="/tracker/feed.xml" type="application/rss+xml">
+                RSS feed of every update
+              </a>
+            </li>
+            <li>
+              <a href="/api/promises">JSON API</a>
+            </li>
+            <li>
+              <Link href="/tracker/embed">Embed the scoreboard</Link>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -99,7 +123,7 @@ export default async function TrackerPage() {
               must be adopted by May 15, and the next election is Saturday, October 19, 2030.
             </p>
           </div>
-          <KeyDates today={todayInSurrey()} />
+          <KeyDates today={today} />
         </div>
       </section>
 
@@ -109,9 +133,11 @@ export default async function TrackerPage() {
             <h2 className="display pop" style={{ fontSize: "clamp(34px, 5vw, 60px)" }}>
               The {total} promises
             </h2>
-            <p className="lede">{scoringNote}</p>
+            <p className="lede">
+              {scoringNote} <Link href="/tracker/methodology">Read how each status is decided.</Link>
+            </p>
           </div>
-          <PromiseList promises={publicPromises} />
+          <PromiseList promises={publicPromises} today={today} />
         </div>
       </section>
 
@@ -140,13 +166,16 @@ export default async function TrackerPage() {
         </div>
       </section>
 
-      <section className="section section--navy on-dark">
+      <section id="subscribe" className="section section--navy on-dark">
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 420px", gap: 14 }}>
             <h2 className="display pop" style={{ fontSize: "clamp(32px, 4.4vw, 52px)" }}>
-              Get the updates
+              Subscribe to all updates
             </h2>
-            <p className="lede">We&apos;ll email you when a promise is scored, a deadline passes, or the council makes a new commitment.</p>
+            <p className="lede">
+              One email when a promise is scored, a deadline passes, or the council makes a new commitment. Want just one promise? Open it and follow it
+              there.
+            </p>
             <div className="btn-row">
               <Link href="/#join" className="btn btn--yellow btn--lg">
                 Become a member
@@ -155,6 +184,19 @@ export default async function TrackerPage() {
                 Chip in
               </Link>
             </div>
+            <ul className="tracker-toolbar" aria-label="Other ways to follow">
+              <li>
+                <a href="/tracker/feed.xml" type="application/rss+xml">
+                  RSS feed
+                </a>
+              </li>
+              <li>
+                <a href="/api/promises">JSON API</a>
+              </li>
+              <li>
+                <Link href="/tracker/embed">Embed the scoreboard</Link>
+              </li>
+            </ul>
           </div>
           <div className="newsletter-bar" style={{ flex: "1 1 420px", alignSelf: "center" }}>
             <div className="copy">
@@ -191,7 +233,8 @@ export default async function TrackerPage() {
             ))}
           </div>
           <p className="small">
-            See something we&apos;ve missed or scored wrong? Email <a href="mailto:hello@imaginesurrey.ca">hello@imaginesurrey.ca</a> with a link to the record.
+            See something we&apos;ve missed or scored wrong? <Link href="/tracker/methodology#dispute">Dispute a score</Link>: email{" "}
+            <a href="mailto:hello@imaginesurrey.ca">hello@imaginesurrey.ca</a> with a link to the record.
           </p>
         </div>
       </section>

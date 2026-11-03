@@ -1,0 +1,81 @@
+.stat-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.stat-tile__value {
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--navy);
+}
+.stat-tile__label {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.stat-tile__note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.goal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+.goal-grid h2,
+.stats-section h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--navy);
+}
+.stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.stats-table th[scope="row"] {
+  background: #fff;
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  font-weight: 700;
+}
+.stats-table td {
+  font-variant-numeric: tabular-nums;
+}
+.stats-table caption {
+  caption-side: bottom;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--muted);
+}
+.how-we-count {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 760px;
+}
+.how-we-count li + li {
+  margin-top: 8px;
+}

@@ -1,48 +1,91 @@
 import Image from "next/image";
 import Link from "next/link";
-import { site, socials } from "@/content/site";
+import { Markdown } from "@/components/shell/Markdown";
+import { SmartLink } from "@/components/shell/SmartLink";
+import { shellSettings } from "@/lib/server/home";
 
-export function Footer() {
+// Ways to take part that every page should offer, whatever the editable
+// footer links say.
+const TAKE_PART = [
+  { href: "/tracker", label: "Promise tracker" },
+  { href: "/volunteer", label: "Volunteer" },
+  { href: "/act", label: "Petitions" },
+  { href: "/stats", label: "Numbers" },
+  { href: "/me", label: "Supporter sign-in" },
+  { href: "/preferences", label: "Email preferences" },
+];
+
+export async function Footer() {
+  const { org, footer, socials } = await shellSettings();
+  const editable = new Set(footer.links.map((l) => l.href));
+  const takePart = TAKE_PART.filter((l) => !editable.has(l.href));
+
   return (
     <footer className="site-footer">
       <div className="container stack" style={{ gap: 40 }}>
         <div className="footer-top">
           <div className="footer-brand">
-            <Image src="/images/logo-light.png" alt="Imagine Surrey" width={202} height={96} style={{ height: 96, width: "auto" }} />
-            <a href={`mailto:${site.email}`} className="text-link" style={{ fontSize: 15, fontWeight: 400 }}>
-              {site.email}
+            <Image src="/images/logo-light.png" alt={org.name} width={202} height={96} style={{ height: 96, width: "auto" }} />
+            {org.address && <p className="footer-address">{org.address}</p>}
+            <a href={`mailto:${org.email}`} className="text-link" style={{ fontSize: 15, fontWeight: 400 }}>
+              {org.email}
             </a>
+            {org.phone && (
+              <a href={`tel:${org.phone.replace(/[^\d+]/g, "")}`} className="footer-phone">
+                {org.phone}
+              </a>
+            )}
           </div>
-          <div style={{ flex: "0 1 220px" }}>
-            <p className="footer-heading">Follow</p>
-            <div className="socials">
-              {socials.map((s) => (
-                <a key={s.name} href={s.url} className="social" aria-label={`Imagine Surrey on ${s.name}`} title={s.name}>
-                  {s.short}
-                </a>
+          {socials.accounts.length > 0 && (
+            <div style={{ flex: "0 1 220px" }}>
+              <h2 className="footer-heading">Follow</h2>
+              <ul className="socials" role="list">
+                {socials.accounts.map((s) => (
+                  <li key={s.url}>
+                    <a href={s.url} className="social" aria-label={`${org.shortName} on ${s.name}`} title={s.name}>
+                      {s.short}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {footer.links.length > 0 && (
+            <div className="footer-links">
+              <h2 className="footer-heading" style={{ marginBottom: 10 }}>
+                Links
+              </h2>
+              {footer.links.map((l) => (
+                <SmartLink key={l.href + l.label} href={l.href}>
+                  {l.label}
+                </SmartLink>
+              ))}
+              {org.platformUrl && <SmartLink href={org.platformUrl}>Read the platform</SmartLink>}
+            </div>
+          )}
+          {takePart.length > 0 && (
+            <div className="footer-links">
+              <h2 className="footer-heading" style={{ marginBottom: 10 }}>
+                Take part
+              </h2>
+              {takePart.map((l) => (
+                <Link key={l.href} href={l.href}>
+                  {l.label}
+                </Link>
               ))}
             </div>
-          </div>
-          <div className="footer-links">
-            <p className="footer-heading" style={{ marginBottom: 10 }}>
-              Links
-            </p>
-            <Link href="/#about">About</Link>
-            <Link href="/news">News</Link>
-            <Link href="/events">Events</Link>
-            <Link href="/tracker">Promise tracker</Link>
-            <Link href="/shop">Shop</Link>
-            <Link href="/donate">Donate</Link>
-            <a href={site.platformUrl}>Read the platform</a>
-            <a href={site.privacyUrl}>Privacy policy</a>
-          </div>
+          )}
         </div>
-        <p style={{ margin: 0, maxWidth: 820, fontSize: 14, lineHeight: 1.55 }}>
-          We live and work on the shared traditional territories of the Coast Salish peoples, including the Semiahmoo, Katzie, and Kwantlen First
-          Nations. We&apos;re committed to relationships built on respect and reconciliation.
-        </p>
+        <Markdown text={footer.acknowledgement} className="footer-acknowledgement" />
         <div className="footer-bottom">
-          <p style={{ margin: 0 }}>© {new Date().getFullYear()} Imagine Surrey</p>
+          <p style={{ margin: 0 }}>
+            © {new Date().getFullYear()} {org.name}
+            {org.authorizationLine && <span className="footer-authorization">{org.authorizationLine}</span>}
+          </p>
+          <p className="footer-legal">
+            <SmartLink href={org.privacyUrl || "/privacy"}>Privacy</SmartLink>
+            <Link href="/accessibility">Accessibility</Link>
+          </p>
         </div>
       </div>
     </footer>
