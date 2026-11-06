@@ -41,6 +41,8 @@ const env = {
   TURNSTILE_SECRET_KEY: "",
   TURNSTILE_VERIFY_URL: "",
   NODE_ENV: "production",
+  // Next.js also reads .env.local; the suites always test the real sign-in gate.
+  ADMIN_PREVIEW_MODE: "",
 };
 
 function run(cmd, args, label) {
