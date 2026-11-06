@@ -1,4 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getDb } from "@/lib/db";
 import { getMember } from "@/lib/server/member-auth";
 import { requestDeletion } from "@/lib/server/portal";
@@ -11,14 +12,14 @@ import { forwardDeletionRequest } from "@/lib/server/starbase-forward";
  */
 export async function POST(req: NextRequest) {
   const person = await getMember();
-  if (!person) return NextResponse.redirect(new URL("/me/login?next=%2Fme%2Fdata", req.url), 303);
+  if (!person) return redirectTo("/me/login?next=%2Fme%2Fdata", 303);
   try {
     const db = getDb();
     const { first, date } = await requestDeletion(db, person);
     if (first) await forwardDeletionRequest(db, person, date);
-    return NextResponse.redirect(new URL("/me/data?requested=1", req.url), 303);
+    return redirectTo("/me/data?requested=1", 303);
   } catch (err) {
     console.error(err);
-    return NextResponse.redirect(new URL("/me/data?requested=failed", req.url), 303);
+    return redirectTo("/me/data?requested=failed", 303);
   }
 }

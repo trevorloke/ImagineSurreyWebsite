@@ -159,11 +159,11 @@ let track = r.headers.get("set-cookie") ?? "";
 ok([302, 307].includes(r.status) && (r.headers.get("location") ?? "").endsWith("/stats"), "referral link redirects to the page asked for");
 ok(/is_track=/.test(track) && decodeURIComponent((track.match(/is_track=([^;]+)/) ?? ["", ""])[1]).includes("ref=PORTAL23") && decodeURIComponent((track.match(/is_track=([^;]+)/) ?? ["", ""])[1]).includes("source=whatsapp"), "…and sets the tracking cookie with ref and source");
 r = await fetch(BASE + "/r/portal23", { redirect: "manual" });
-ok((r.headers.get("set-cookie") ?? "").includes("is_track=") && (r.headers.get("location") ?? "") === `${BASE}/`, "lower-case code works and goes home by default");
+ok((r.headers.get("set-cookie") ?? "").includes("is_track=") && new URL(r.headers.get("location") ?? "", BASE).href === `${BASE}/`, "lower-case code works and goes home by default");
 r = await fetch(BASE + "/r/PORTAL23?to=https://evil.example", { redirect: "manual" });
-ok((r.headers.get("location") ?? "") === `${BASE}/`, "an off-site `to` is ignored");
+ok(new URL(r.headers.get("location") ?? "", BASE).href === `${BASE}/`, "an off-site `to` is ignored");
 r = await fetch(BASE + "/r/NOPE2345", { redirect: "manual" });
-ok([302, 307].includes(r.status) && (r.headers.get("location") ?? "") === `${BASE}/` && !r.headers.get("set-cookie"), "unknown code redirects home without a cookie");
+ok([302, 307].includes(r.status) && new URL(r.headers.get("location") ?? "", BASE).href === `${BASE}/` && !r.headers.get("set-cookie"), "unknown code redirects home without a cookie");
 
 // ── Counters ──────────────────────────────────────────────────────────────
 r = await fetch(BASE + "/api/stats");

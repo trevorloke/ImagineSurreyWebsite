@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getDb } from "@/lib/db";
 import { consentMeta } from "@/lib/server/consent";
 import { unsubscribeByToken } from "@/lib/server/newsletter";
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
       return new NextResponse("Something went wrong. Please try the link again in a minute.", { status: 500 });
     }
   }
-  return NextResponse.redirect(new URL("/newsletter/unsubscribe?done=1", req.url), 303);
+  return redirectTo("/newsletter/unsubscribe?done=1", 303);
 }
 
 // A plain link to this route (older emails, link scanners, prefetching)
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 // whose POST does both.
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
-  const url = new URL("/newsletter/unsubscribe", req.url);
+  const url = new URL("/newsletter/unsubscribe", "http://site.invalid");
   if (token) url.searchParams.set("token", token);
-  return NextResponse.redirect(url, 303);
+  return redirectTo(url, 303);
 }

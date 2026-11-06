@@ -17,11 +17,24 @@ export async function proxy(req: NextRequest) {
   if (secret && cookie && (await verify(cookie, secret))) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
-  const login = new URL("/admin/login", req.url);
+  const login = new URL("/admin/login", publicOrigin(req));
   if (pathname !== "/admin") login.searchParams.set("next", pathname);
   const res = NextResponse.redirect(login);
   if (cookie) res.cookies.delete(COOKIE);
   return res;
+}
+
+/**
+ * The address the visitor used. Behind a hosting proxy (Render, Docker) the
+ * request URL carries the server's internal address (http://localhost:10000),
+ * so prefer the host and scheme the proxy forwards. A redirect here must be
+ * absolute, so the relative-path helper used by route handlers can't be.
+ */
+function publicOrigin(req: NextRequest): string {
+  const host = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim() || req.headers.get("host");
+  if (!host || !/^[A-Za-z0-9.-]+(:\d+)?$/.test(host)) return req.nextUrl.origin;
+  const proto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.nextUrl.protocol.replace(":", "");
+  return `${proto === "http" ? "http" : "https"}://${host}`;
 }
 
 async function verify(value: string, secret: string): Promise<boolean> {
