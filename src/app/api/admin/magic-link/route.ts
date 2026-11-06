@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { after, NextResponse, type NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
+import { after, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { adminUsers } from "@/lib/db/schema";
 import { env } from "@/lib/env";
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const next = safeNext(form.get("next"));
   const meta = requestMeta(req);
-  const back = (query: string) => NextResponse.redirect(new URL(`/admin/login?${query}&email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`, req.url), 303);
+  const back = (query: string) => redirectTo(`/admin/login?${query}&email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`, 303);
   if (!env.emailEnabled) return back("error=email-not-configured");
   const db = getDb();
   await ensureBootstrapOwner(db);
@@ -51,10 +52,10 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get("token") ?? "";
   const db = getDb();
   const token = await consumeToken(db, "admin-login", raw);
-  if (!token) return NextResponse.redirect(new URL("/admin/login?error=link", req.url), 303);
+  if (!token) return redirectTo("/admin/login?error=link", 303);
   const result = await loginByEmail(token.email, requestMeta(req));
-  if (!result.ok) return NextResponse.redirect(new URL("/admin/login?error=invalid", req.url), 303);
-  const res = NextResponse.redirect(new URL(safeNext(token.data?.next), req.url), 303);
+  if (!result.ok) return redirectTo("/admin/login?error=invalid", 303);
+  const res = redirectTo(safeNext(token.data?.next), 303);
   res.cookies.set(SESSION_COOKIE, result.cookie.value, { ...sessionCookieOptions, maxAge: result.cookie.maxAge });
   await audit(result.user, "signin", { method: "email-link" });
   return res;

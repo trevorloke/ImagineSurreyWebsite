@@ -1,4 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getDb } from "@/lib/db";
 import { consentMeta } from "@/lib/server/consent";
 import { confirmSubscriptionDetails, type ConfirmResult } from "@/lib/server/newsletter";
@@ -24,5 +25,5 @@ export async function GET(req: NextRequest) {
     console.error("newsletter confirmation failed", err);
   }
   const target = result === "subscribed" ? "/newsletter/confirmed" : result === "unsubscribed" ? "/newsletter/confirmed?unsubscribed=1" : "/newsletter/confirmed?invalid=1";
-  return NextResponse.redirect(new URL(target, req.url), 303);
+  return redirectTo(target, 303);
 }

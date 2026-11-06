@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { clearMemberSession } from "@/lib/server/member-auth";
 
 export async function POST(req: NextRequest) {
   await clearMemberSession();
-  return NextResponse.redirect(new URL("/", req.url), 303);
+  return redirectTo("/", 303);
 }

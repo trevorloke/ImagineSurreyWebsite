@@ -123,6 +123,17 @@ This guide takes the site from this repository to a live website. Supporter data
    - With both set, the petition, pledge, newsletter, membership, volunteer, RSVP, promise-follow, `/me` sign-in and preference-link forms all need a pass. If Cloudflare can't be reached, those forms ask people to try again in a moment. The donation and shop checkouts don't use it: Stripe screens payments itself.
    - Admin → Integrations shows whether it is on.
 
+## 2b. Or put the website online with Render
+
+If the site runs on Render instead of Vercel, use a **Web Service** (Node):
+
+- **Build command:** `npm ci && npm run build:deploy`. On every deploy, except pull-request previews, it runs new database migrations and the starter content, then builds. If that step fails, the deploy stops and the current site stays live.
+- **Start command:** `npm start`. Render supplies the port.
+- **Environment:** the same variables as in step 6, under the service's **Environment** tab. Set `NEXT_PUBLIC_SITE_URL` to the public address people type (e.g. `https://imaginesurrey.ca`), never to `localhost`, then redeploy, because `NEXT_PUBLIC_` values are built into the pages.
+- **Scheduled jobs:** `vercel.json` is ignored on Render. Add a Render **Cron Job** for each daily job, each with `CRON_SECRET` in its environment, so reminders go out and leftover email and Starbase sign-ups are retried:
+  - Schedule `7 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/reminders`
+  - Schedule `37 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/email`
+
 ## 3. Test, then go live
 
 10. **Test with Stripe's test card.** Join and donate using card `4242 4242 4242 4242`, any future expiry date and any CVC. Then confirm that:

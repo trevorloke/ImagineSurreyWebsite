@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getDb } from "@/lib/db";
 import { safeMemberNext } from "@/lib/engagement";
 import { env } from "@/lib/env";
@@ -13,19 +14,19 @@ import { consumeToken } from "@/lib/server/tokens";
  * the /me/verify page, whose button POSTs back here.
  */
 export async function GET(req: NextRequest) {
-  const url = new URL("/me/verify", req.url);
+  const url = new URL("/me/verify", "http://site.invalid");
   const token = req.nextUrl.searchParams.get("token");
   const next = req.nextUrl.searchParams.get("next");
   if (token) url.searchParams.set("token", token);
   if (next) url.searchParams.set("next", next);
-  const res = NextResponse.redirect(url, 303);
+  const res = redirectTo(url, 303);
   res.headers.set("Referrer-Policy", "same-origin");
   return res;
 }
 
 /** The "Sign in" button: redeem the token once, start the session, carry on to `next`. */
 export async function POST(req: NextRequest) {
-  const expired = () => NextResponse.redirect(new URL("/me/login?error=expired", req.url), 303);
+  const expired = () => redirectTo("/me/login?error=expired", 303);
   if (!sameSite(req)) return NextResponse.json({ error: "Sign in from the link in your email." }, { status: 403 });
   let form: FormData;
   try {
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!person) return expired();
   await setMemberSession(person.id);
   const next = safeMemberNext(form.get("next") ?? token.data?.next);
-  return NextResponse.redirect(new URL(next, req.url), 303);
+  return redirectTo(next, 303);
 }
 
 /** Only this site's own page may submit a token, so no other site can sign a visitor in. */

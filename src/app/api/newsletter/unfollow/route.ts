@@ -1,4 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getDb } from "@/lib/db";
 import { unfollowPromise } from "@/lib/server/newsletter";
 
@@ -12,5 +13,5 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("unfollow failed", err);
   }
-  return NextResponse.redirect(new URL(removed ? "/newsletter/unfollowed" : "/newsletter/unfollowed?missing=1", req.url), 303);
+  return redirectTo(removed ? "/newsletter/unfollowed" : "/newsletter/unfollowed?missing=1", 303);
 }
