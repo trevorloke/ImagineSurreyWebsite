@@ -8,6 +8,7 @@ import { LOCALES } from "@/components/admin/people/query";
 import { getDb } from "@/lib/db";
 import { formatCents } from "@/lib/money";
 import { can, requireAdmin } from "@/lib/server/admin-auth";
+import { outboxForPerson } from "@/lib/server/starbase-outbox";
 import { displayName, filterFacets, loadPerson, type TimelineEntry } from "@/lib/server/supporters";
 import { addNoteAction, addTagAction, anonymizeAction, removeTagAction, savePerson } from "./actions";
 import "../people.css";
@@ -54,7 +55,7 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const db = getDb();
-  const [profile, facets] = await Promise.all([loadPerson(db, id, { money }), filterFacets(db)]);
+  const [profile, facets, desk] = await Promise.all([loadPerson(db, id, { money }), filterFacets(db), outboxForPerson(db, id)]);
   if (!profile) notFound();
   const { person, membership, newsletter } = profile;
   const name = displayName(person);
@@ -103,6 +104,8 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
               <dd>{person.issue ?? "—"}</dd>
               <dt>Source</dt>
               <dd>{person.source ?? "—"}</dd>
+              <dt>Starbase id</dt>
+              <dd>{person.starbasePersonId ? <span className="secret">{person.starbasePersonId}</span> : "—"}</dd>
               <dt>Added</dt>
               <dd>{WHEN.format(person.createdAt)}</dd>
             </dl>
@@ -198,6 +201,25 @@ export default async function PersonPage({ params }: PageProps<"/admin/people/[i
               </dd>
             </dl>
             <p className="small">Consent is read-only: under CASL only the person can give it, through their own tick or confirmation click.</p>
+          </section>
+
+          <section className="profile-card" aria-labelledby="desk-title">
+            <h2 id="desk-title">Sent to Starbase</h2>
+            {desk.length === 0 ? (
+              <p className="small">Nothing from this supporter has been forwarded to the desk.</p>
+            ) : (
+              <ul className="notes" data-starbase-rows>
+                {desk.map((r) => (
+                  <li key={r.id} className="note">
+                    <span className="note__meta">
+                      {WHEN.format(r.createdAt)} · {r.kind} <Status value={r.status} />
+                      {r.attempts > 1 ? ` · ${r.attempts} attempts` : ""}
+                    </span>
+                    {r.lastError && r.status !== "sent" ? r.lastError : r.sentAt ? `Sent ${WHEN.format(r.sentAt)}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="profile-card" aria-labelledby="referral-title">

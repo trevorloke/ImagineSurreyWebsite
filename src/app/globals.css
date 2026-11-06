@@ -1910,6 +1910,9 @@ a.product:hover {
   flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
+  /* Contains absolutely positioned screen-reader text inside the scroller,
+     so it can't widen the page on a phone. */
+  position: relative;
 }
 .shift-grid {
   display: grid;

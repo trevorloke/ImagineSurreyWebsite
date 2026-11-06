@@ -190,3 +190,17 @@
     padding: 18px;
   }
 }
+
+/* The human check (Cloudflare Turnstile). Usually empty: the widget only
+   appears when Cloudflare needs a tap. Its iframe is at most 300px wide. */
+.human-check {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.human-check:focus {
+  outline: none;
+}
+.human-check:focus-visible {
+  outline: 3px solid var(--navy);
+  outline-offset: 2px;
+}

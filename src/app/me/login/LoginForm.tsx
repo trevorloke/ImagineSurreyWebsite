@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Honeypot } from "@/components/forms/Field";
+import { HumanCheck } from "@/components/forms/HumanCheck";
+import { HUMAN_NOT_READY, humanHeaders, useHumanControl } from "@/components/forms/human";
 
 type Status = "idle" | "sending" | "sent" | "error";
 
@@ -11,6 +13,7 @@ export const SENT_MESSAGE = "If that address has an account, a sign-in link is o
 export function LoginForm({ next }: { next: string }) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
+  const human = useHumanControl();
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -18,10 +21,16 @@ export function LoginForm({ next }: { next: string }) {
     const data = new FormData(e.currentTarget);
     setStatus("sending");
     setError("");
+    const headers = await humanHeaders(human);
+    if (!headers) {
+      setStatus("error");
+      setError(HUMAN_NOT_READY);
+      return;
+    }
     try {
       const res = await fetch("/api/me/login", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ email: data.get("email"), website: data.get("website") ?? "", next }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; fields?: Record<string, string> };
@@ -34,6 +43,9 @@ export function LoginForm({ next }: { next: string }) {
     } catch {
       setStatus("error");
       setError("We couldn't reach the server. Check your connection and try again.");
+    } finally {
+      // The token worked once; the next try needs a fresh one.
+      human.reset();
     }
   }
 
@@ -57,6 +69,7 @@ export function LoginForm({ next }: { next: string }) {
           Use the address you joined, signed or donated with.
         </p>
       </div>
+      <HumanCheck control={human} />
       <button type="submit" className="btn btn--navy btn--lg" aria-busy={status === "sending"} aria-disabled={status === "sending"}>
         {status === "sending" ? "Sending…" : "Email me a sign-in link"}
       </button>

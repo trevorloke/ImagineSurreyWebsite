@@ -19,7 +19,7 @@ const TTL_MINUTES = 60;
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, preferencesRequestSchema, "preferences");
+    const parsed = await parseBody(req, preferencesRequestSchema, "preferences", { human: true });
     if (!parsed.ok) return parsed.response;
     const email = parsed.data.email;
     after(async () => {

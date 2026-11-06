@@ -24,7 +24,7 @@ const FULL = "This event is full. Get the newsletter and we'll tell you about th
 export async function POST(req: NextRequest, ctx: RouteContext<"/api/events/[slug]/rsvp">) {
   return handle(async () => {
     const { slug } = await ctx.params;
-    const parsed = await parseBody(req, rsvpRequestSchema, "rsvp");
+    const parsed = await parseBody(req, rsvpRequestSchema, "rsvp", { human: true });
     if (!parsed.ok) return parsed.response;
     const db = getDb();
     const event = await db.query.events.findFirst({ where: and(eq(events.slug, slug), eq(events.published, true)) });

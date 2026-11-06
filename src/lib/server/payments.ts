@@ -16,6 +16,7 @@ import { subscribe } from "./newsletter";
 import { trackingFromRequest, type Tracking } from "./attribution";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "./consent";
 import { normalizePhone } from "./sms";
+import { forwardMembership } from "./starbase-forward";
 
 export { contributionRoom, contributionTotals, UserFacingError } from "./limits";
 export { addYear } from "@/lib/contributions";
@@ -51,7 +52,8 @@ export const DONATION_NEWSLETTER_WORDING = CONSENT_WORDING.newsletter;
  * each tick is written to the consent ledger with the wording the person saw
  * (which also sets the person's consent columns), and an email tick
  * subscribes them. A text tick counts only with a phone number typed on this
- * same form, never one stored from before.
+ * same form, never one stored from before. Returns whether the email grant
+ * was recorded.
  */
 async function recordFormConsent(
   db: Db,
@@ -62,8 +64,9 @@ async function recordFormConsent(
     email?: { purpose: "updates" | "newsletter"; wording: string; subscribeAs: string } | null;
     sms?: { phone: string | undefined } | null;
   },
-) {
+): Promise<{ emailGranted: boolean }> {
   const meta = ctx.meta ?? { ip: null, userAgent: null };
+  let emailGranted = false;
   if (consent.email) {
     // A public form cannot undo an earlier withdrawal: subscribe only when the grant was recorded.
     const granted = await recordConsent(db, {
@@ -77,6 +80,7 @@ async function recordFormConsent(
       ...meta,
     });
     if (granted) await subscribe(db, person.email, consent.email.subscribeAs, person.id);
+    emailGranted = granted;
   }
   if (consent.sms && consent.sms.phone?.trim() && normalizePhone(consent.sms.phone)) {
     await recordConsent(db, {
@@ -90,6 +94,7 @@ async function recordFormConsent(
       ...meta,
     });
   }
+  return { emailGranted };
 }
 
 // ── Stripe customers ───────────────────────────────────────────────────────
@@ -333,7 +338,7 @@ export async function createMembership(db: Db, input: z.output<typeof membership
     { source: ctx.tracking?.source ?? "membership", referredByCode: ctx.tracking?.ref },
   );
   // Joining is not consent to marketing: only the form's own unticked boxes are.
-  await recordFormConsent(db, person, ctx, {
+  const { emailGranted } = await recordFormConsent(db, person, ctx, {
     source: "membership-form",
     email: input.updatesConsent ? { purpose: "updates", wording: CONSENT_WORDING.updates, subscribeAs: "membership" } : null,
     sms: input.smsConsent ? { phone: input.phone } : null,
@@ -350,6 +355,11 @@ export async function createMembership(db: Db, input: z.output<typeof membership
     memberCity: input.city,
     memberPostalCode: postalCode,
     memberNeighbourhood: input.neighbourhood,
+    memberPhone: input.phone ?? null,
+    // What is forwarded to the desk once the membership is active.
+    interestVolunteer: input.interestVolunteer,
+    interestLawnSign: input.interestLawnSign,
+    updatesConsent: emailGranted,
   };
 
   if (feeCents === 0) {
@@ -368,6 +378,7 @@ export async function createMembership(db: Db, input: z.output<typeof membership
     } catch (err) {
       console.error("Membership notification failed", err);
     }
+    await forwardMembership(db, membership.id);
     return { status: "received" };
   }
 

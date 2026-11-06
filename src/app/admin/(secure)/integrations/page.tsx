@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { AdminPage } from "@/components/admin/content/AdminPage";
-import { TestEmailForm, TestSmsForm } from "@/components/admin/content/IntegrationTests";
+import Link from "next/link";
+import { StarbaseForms, TestEmailForm, TestSmsForm } from "@/components/admin/content/IntegrationTests";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/server/admin-auth";
 import { integrationStats } from "@/lib/server/content-admin";
+import { starbaseUrlProblem } from "@/lib/server/starbase";
+import { outboxStats } from "@/lib/server/starbase-outbox";
 
 type Tone = "ok" | "warn" | "off" | "bad";
 
@@ -44,7 +47,8 @@ function Card({ title, tone, rows, env: vars, children }: { title: string; tone:
 
 export default async function IntegrationsPage() {
   const user = await requireAdmin("integrations");
-  const stats = await integrationStats(getDb());
+  const db = getDb();
+  const [stats, desk] = await Promise.all([integrationStats(db), outboxStats(db)]);
 
   // Stripe getters throw when the keys are missing; show that instead of crashing.
   let stripeMode: string | null = null;
@@ -64,6 +68,14 @@ export default async function IntegrationsPage() {
   const onVercel = Boolean(process.env.VERCEL);
   const analytics = env.plausibleDomain ? `Plausible (${env.plausibleDomain})` : env.gaMeasurementId ? `Google Analytics (${env.gaMeasurementId})` : null;
   const queueStale = stats.email.oldestQueuedAt ? Date.now() - stats.email.oldestQueuedAt.getTime() > 10 * 60_000 : false;
+
+  // Starbase: the key is shown only by the first characters Starbase lists it by.
+  const starbaseOn = env.starbaseEnabled;
+  const starbaseUrlIssue = starbaseOn ? starbaseUrlProblem(env.starbaseUrl) : null;
+  const deskError = desk.lastError;
+  const keyRefused = Boolean(deskError && desk.counts.pending > 0 && /^(401|403|404):/.test(deskError.message));
+  const starbaseTone: Tone = !starbaseOn ? "off" : starbaseUrlIssue || keyRefused ? "bad" : desk.counts.failed > 0 || (deskError && desk.counts.pending > 0) ? "warn" : "ok";
+  const humanKeys = [env.turnstileSiteKey, env.turnstileSecretKey].filter(Boolean).length;
 
   return (
     <AdminPage title="Integrations" intro="What is connected, what is not, and the environment variables that control each one. Keys are set in the hosting dashboard, never here.">
@@ -116,6 +128,60 @@ export default async function IntegrationsPage() {
           {!env.storageEnabled && onVercel && (
             <p className="small" style={{ color: "var(--red-hover)", fontWeight: 700 }}>
               This deployment runs on Vercel without Supabase Storage, so the media library can't accept uploads. Create a public bucket and set the variables.
+            </p>
+          )}
+        </Card>
+        <Card
+          title="Starbase (the desk)"
+          tone={starbaseTone}
+          rows={[
+            ["Connection", starbaseOn ? (starbaseUrlIssue ?? `Configured: ${env.starbaseUrl}`) : "Not configured: sign-ups are kept here as skipped and not sent"],
+            ["Website key", env.starbaseKey ? `Set (${env.starbaseKey.slice(0, 10)}…)` : "Not set"],
+            ["Waiting to send", String(desk.counts.pending)],
+            ["Sent", `${desk.counts.sent}${desk.lastSentAt ? ` (last ${when(desk.lastSentAt)})` : ""}`],
+            ["Refused by Starbase", String(desk.counts.failed)],
+            ["Skipped", String(desk.counts.skipped)],
+            [
+              "Last problem",
+              deskError ? (
+                <span style={keyRefused ? { color: "var(--red-hover)", fontWeight: 700 } : undefined}>
+                  {deskError.message} ({when(deskError.at)}){keyRefused ? ". Check the key: sign-ups are waiting until it works." : ""}
+                </span>
+              ) : (
+                "none"
+              ),
+            ],
+          ]}
+          env={["STARBASE_URL", "STARBASE_KEY"]}
+        >
+          <p className="small">
+            New sign-ups (petitions, pledges, the newsletter, volunteer shifts, memberships, deletion requests) are sent from this server. Donations, RSVPs, orders and follows
+            never are. <Link href="/admin/integrations/starbase">See everything sent</Link>
+            {" · "}
+            <Link href="/admin/desk-gifts">Gifts to log at the desk</Link>
+          </p>
+          {starbaseOn && <StarbaseForms waiting={desk.counts.pending} />}
+        </Card>
+        <Card
+          title="Human check (Cloudflare Turnstile)"
+          tone={env.humanCheckEnabled ? "ok" : onVercel ? "bad" : "warn"}
+          rows={[
+            [
+              "Status",
+              env.humanCheckEnabled
+                ? "On: sign-up, RSVP, follow, sign-in and preference-link forms must pass it"
+                : humanKeys === 1
+                  ? "Off: only one of the two keys is set"
+                  : "Off: public forms rely on the honeypot and rate limits only",
+            ],
+            ["Checked by", env.turnstileVerifyUrl],
+          ]}
+          env={["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY", "TURNSTILE_VERIFY_URL"]}
+        >
+          {!env.humanCheckEnabled && (
+            <p className="small" style={{ color: "var(--red-hover)", fontWeight: 700 }}>
+              The live site should have this on: every accepted sign-up becomes a supporter record here and in Starbase, and can file a request for the desk. Make a free
+              Turnstile widget in Cloudflare and set both keys.
             </p>
           )}
         </Card>

@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { ErrorSummary, Honeypot, LiveRegion, SubmitButton, SuccessCard, TextField } from "@/components/forms/Field";
+import { HumanCheck } from "@/components/forms/HumanCheck";
 import { readForm, useApiForm } from "@/components/forms/useApiForm";
 import { preferencesRequestSchema } from "@/lib/validation";
 
 /** "Send me a link": the public way into the preference centre. */
 export function RequestLinkForm({ expired = false }: { expired?: boolean }) {
-  const { submit, pending, error, fields, summaryRef } = useApiForm("/api/preferences/request", { schema: preferencesRequestSchema });
+  const { submit, pending, error, fields, summaryRef, human } = useApiForm("/api/preferences/request", { schema: preferencesRequestSchema });
   const [done, setDone] = useState(false);
   const [live, setLive] = useState("");
 
@@ -47,6 +48,7 @@ export function RequestLinkForm({ expired = false }: { expired?: boolean }) {
           Imagine Surrey email.
         </p>
         <TextField id="pref-request-email" name="email" type="email" label="Email" required autoComplete="email" error={fields.email} />
+        <HumanCheck control={human} error={fields.human} />
         <ErrorSummary ref={summaryRef} error={error} fields={fields} />
         <SubmitButton pending={pending} className="btn btn--navy btn--lg">
           Send me a link

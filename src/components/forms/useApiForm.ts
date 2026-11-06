@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import { fieldErrors } from "@/lib/validation";
+import { HUMAN_NOT_READY, humanHeaders, useHumanControl } from "./human";
 
 export type FieldErrors = Record<string, string>;
 
@@ -18,6 +19,11 @@ export type ApiFormOptions = {
  * POST JSON to one of our API routes and track pending, error and
  * field-error state. After a failed submit, focus moves to the error summary
  * (`summaryRef`) so keyboard and screen-reader users land on what went wrong.
+ *
+ * `human` is the controller for the form's human check: put
+ * `<HumanCheck control={form.human} />` before the submit button and submit
+ * sends its token as x-human-token (waiting a few seconds for one if needed),
+ * then resets it after every answer. Without the site key it does nothing.
  */
 export function useApiForm<TResult = { ok: true }>(url: string, options: ApiFormOptions = {}) {
   const [pending, setPending] = useState(false);
@@ -27,6 +33,7 @@ export function useApiForm<TResult = { ok: true }>(url: string, options: ApiForm
   const summaryRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef(false);
   const schema = options.schema;
+  const human = useHumanControl();
 
   useEffect(() => {
     if (failures > 0) summaryRef.current?.focus();
@@ -56,8 +63,16 @@ export function useApiForm<TResult = { ok: true }>(url: string, options: ApiForm
       setPending(true);
       setError(null);
       setFields({});
+      let tokenUsed = false;
       try {
-        const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const headers = await humanHeaders(human);
+        if (!headers) {
+          // The widget may still be working (or waiting for a tap): leave it be.
+          fail(HUMAN_NOT_READY, { human: HUMAN_NOT_READY });
+          return null;
+        }
+        tokenUsed = true;
+        const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           fail(data.error ?? "Something went wrong. Please try again.", data.fields ?? {});
@@ -68,14 +83,16 @@ export function useApiForm<TResult = { ok: true }>(url: string, options: ApiForm
         fail("We couldn't reach the server. Check your connection and try again.");
         return null;
       } finally {
+        // A token works once: whatever the answer, the next submit needs a fresh one.
+        if (tokenUsed) human.reset();
         pendingRef.current = false;
         setPending(false);
       }
     },
-    [url, schema, fail],
+    [url, schema, fail, human],
   );
 
-  return { submit, pending, error, fields, summaryRef, fail };
+  return { submit, pending, error, fields, summaryRef, fail, human };
 }
 
 /** Read a form's named inputs, with checkboxes as booleans and grouped checkboxes as arrays. */

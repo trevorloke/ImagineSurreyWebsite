@@ -7,6 +7,7 @@ import { formatCents } from "@/lib/money";
 import { ageOn, CAMPUSES, MIN_MEMBER_AGE, NEIGHBOURHOODS, neighbourhoodForPostalCode, OUTSIDE_SURREY } from "@/lib/neighbourhoods";
 import { membershipSchema } from "@/lib/validation";
 import { Alert, Checkbox, ConsentCheckbox, ErrorSummary, Honeypot, LiveRegion, PostalCodeField, SelectField, SubmitButton, SuccessCard, TextField, TrackingFields } from "./Field";
+import { HumanCheck } from "./HumanCheck";
 import { readForm, useApiForm } from "./useApiForm";
 
 const LANGUAGES: [string, string?, string?][] = [
@@ -39,7 +40,7 @@ type Result = { status: "checkout"; url: string } | { status: "received" } | { s
  * unticked boxes.
  */
 export function MembershipForm({ feeCents }: { feeCents: number }) {
-  const { submit, pending, error, fields, summaryRef, fail } = useApiForm<Result>("/api/membership", { schema: membershipSchema });
+  const { submit, pending, error, fields, summaryRef, fail, human } = useApiForm<Result>("/api/membership", { schema: membershipSchema });
   const [hood, setHood] = useState("");
   const [outsideSurrey, setOutsideSurrey] = useState(false);
   const [tooYoung, setTooYoung] = useState(false);
@@ -298,6 +299,7 @@ export function MembershipForm({ feeCents }: { feeCents: number }) {
           <a href={site.privacyUrl}>privacy policy</a>.
         </Checkbox>
 
+        <HumanCheck control={human} error={fields.human} />
         <ErrorSummary ref={summaryRef} error={error} fields={fields} />
         <SubmitButton pending={pending} disabled={blocked} className="btn btn--red btn--lg btn--block">
           {feeCents > 0 ? `Join Imagine Surrey · ${formatCents(feeCents)} a year` : "Join Imagine Surrey"}

@@ -191,7 +191,15 @@ ok(csv.startsWith("date,slot,volunteer") && csv.includes("Priya Sandhu") && csv.
 const mobile = await browser.newPage({ viewport: { width: 390, height: 900 } });
 await mobile.context().addCookies(await page.context().cookies());
 await mobile.goto(BASE + "/admin/shifts");
-ok((await mobile.evaluate(() => document.documentElement.scrollWidth)) <= 390, "shift board has no sideways scroll on a phone");
+const phone = await mobile.evaluate(() => {
+  const wide = [];
+  for (const el of document.querySelectorAll("body *")) {
+    const r = el.getBoundingClientRect();
+    if (r.right > 390.5 && el.closest(".shift-grid-wrap") === null) wide.push(`${el.tagName.toLowerCase()}.${[...el.classList].join(".")}@${Math.round(r.right)}`);
+  }
+  return { width: document.documentElement.scrollWidth, wide: wide.slice(0, 6) };
+});
+ok(phone.width <= 390, `shift board has no sideways scroll on a phone${phone.width > 390 ? ` (${phone.width}px: ${phone.wide.join(", ")})` : ""}`);
 
 await browser.close();
 await finish();

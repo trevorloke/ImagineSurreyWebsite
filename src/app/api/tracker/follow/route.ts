@@ -11,7 +11,7 @@ import { followPromise, followSchema } from "@/lib/server/tracker";
 /** Follow one promise: { promiseId, email, consent: true }. Double opt-in when email is configured. */
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, followSchema, "promise-follow");
+    const parsed = await parseBody(req, followSchema, "promise-follow", { human: true });
     if (!parsed.ok) return parsed.response;
     const db = getDb();
     const promise = await db.query.trackerPromises.findFirst({ where: eq(trackerPromises.id, parsed.data.promiseId), columns: { id: true, number: true, title: true } });

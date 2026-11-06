@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Alert, ConsentCheckbox, Honeypot, TextField, TrackingFields } from "@/components/forms/Field";
+import { HumanCheck } from "@/components/forms/HumanCheck";
 import { readForm, useApiForm } from "@/components/forms/useApiForm";
 import type { PublicOpening, SignupConfirmation } from "@/lib/shifts";
 
@@ -14,7 +15,7 @@ type Result = { ok: true; confirmation: SignupConfirmation };
  * shift needs neither tick: messages about the shift itself are transactional.
  */
 export function SignupForm({ opening, onDone, onCancel }: { opening: PublicOpening; onDone: (c: SignupConfirmation) => void; onCancel: () => void }) {
-  const { submit, pending, error, fields } = useApiForm<Result>("/api/volunteer/signup");
+  const { submit, pending, error, fields, human } = useApiForm<Result>("/api/volunteer/signup");
   const formRef = useRef<HTMLFormElement>(null);
   const prefix = `su-${opening.id.slice(0, 8)}`;
 
@@ -51,6 +52,7 @@ export function SignupForm({ opening, onDone, onCancel }: { opening: PublicOpeni
       <p className="hint">We&apos;ll email you about this shift. The boxes below are optional.</p>
       <ConsentCheckbox id={`${prefix}-updates`} kind="updates" error={fields.updatesConsent} />
       <ConsentCheckbox id={`${prefix}-sms`} kind="sms" error={fields.smsConsent} />
+      <HumanCheck control={human} />
       {error && <Alert>{error}</Alert>}
       <div className="btn-row" style={{ gap: 10 }}>
         <button type="submit" className="btn btn--red" aria-busy={pending} aria-disabled={pending}>

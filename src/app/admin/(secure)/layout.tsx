@@ -15,6 +15,7 @@ const NAV: { href: string; label: string; permission?: Permission }[] = [
   { href: "/admin/pages", label: "Pages", permission: "content" },
   { href: "/admin/media", label: "Media", permission: "content" },
   { href: "/admin/tracker", label: "Promise tracker", permission: "tracker" },
+  { href: "/admin/desk-gifts", label: "Gifts to log at the desk", permission: "money" },
   { href: "/admin/settings", label: "Site settings", permission: "settings" },
   { href: "/admin/integrations", label: "Integrations", permission: "integrations" },
   { href: "/admin/exports", label: "Exports" },

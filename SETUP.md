@@ -50,11 +50,13 @@ This guide takes the site from this repository to a live website. Supporter data
    | `ADMIN_EMAIL` | **Required to sign in to `/admin`.** Your email: the first sign-in with this address and `ADMIN_PASSWORD` creates the owner account |
    | `ADMIN_PASSWORD` | A long password (12+ characters) for that first sign-in. Change it afterwards under My account |
    | `ADMIN_SESSION_SECRET` | A long random string, e.g. from `openssl rand -hex 32`. It also signs supporter sign-ins |
-   | `CRON_SECRET` | A long random string. Vercel sends it to the two daily jobs: day-before reminders (about 10 a.m. Pacific) and a sweep of any email still queued. These work on every Vercel plan |
+   | `CRON_SECRET` | A long random string. Vercel sends it to the two daily jobs: day-before reminders (about 10 a.m. Pacific) and a sweep of any email (and any Starbase sign-up) still queued. These work on every Vercel plan |
    | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` | Email (step 9a). Optional at first: without them nothing is sent, but every message is still logged |
    | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Texts (step 9b). Optional |
    | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET` | Image uploads in Admin → Media (step 9c). Optional |
    | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` or `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Analytics, only if you want them |
+   | `STARBASE_URL`, `STARBASE_KEY` | The campaign's database, Starbase (step 9f). Optional at first: without them sign-ups stay on the website only |
+   | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | The human check on public forms (step 9g). Turn it on before launch |
 
 7. **Click Deploy.**
 
@@ -98,7 +100,28 @@ This guide takes the site from this repository to a live website. Supporter data
    - Deactivating an account or resetting a password signs that person out everywhere.
    - Keep at least one owner you can reach.
 
-9e. **Content.** Review the draft `/privacy` page in Admin → Pages: name your privacy officer and confirm the processors (Vercel, Supabase, Stripe, Resend, Twilio, analytics). Then fill in Admin → Site settings: the organization's address, the financial agent's authorization line, the board, and the social accounts. After any bulk change made directly in the database, POST to `/api/admin/revalidate` (signed in) to refresh the public pages, or simply wait up to an hour.
+9e. **Content.** Review the draft `/privacy` page in Admin → Pages: name your privacy officer and confirm the processors (Vercel, Supabase, Stripe, Resend, Twilio, Cloudflare Turnstile, analytics) and what goes to Starbase. Then fill in Admin → Site settings: the organization's address, the financial agent's authorization line, the board, and the social accounts. After any bulk change made directly in the database, POST to `/api/admin/revalidate` (signed in) to refresh the public pages, or simply wait up to an hour.
+
+9f. **Connect Starbase (the desk).** Starbase is the campaign's database. The website sends it new sign-ups so organizers see one record per supporter.
+   - **Make a website key.** In Starbase, a manager opens **Settings → Services → Website keys**, names the key (*Website*) and clicks **Make a key**. The key (`sbk_…`) is shown once: copy it straight into Vercel.
+   - **Set two variables in Vercel:** `STARBASE_URL` is Starbase's public address with no trailing slash, e.g. `https://starbase.imaginesurrey.ca` (it must be `https://`), and `STARBASE_KEY` is the key. Never give the key a `NEXT_PUBLIC_` name: the website calls Starbase from its own server, never from the visitor's browser, so the key stays secret. Redeploy.
+   - **Test it.** In Admin → Integrations, the **Starbase (the desk)** card has **Test connection**. It should name your campaign and the key. **Send now** sends anything waiting, and the card links to everything sent (Admin → Integrations → Starbase), where a refused sign-up can be retried or skipped.
+   - **What is sent, and when.** Each one only after the website has accepted it, and only what the person typed into that form:
+     - a new petition or pledge signature, tagged `Petition: <title>` (or `Pledge: …`), with newsletter only if they ticked email updates
+     - a newsletter sign-up, once it is confirmed (or at once when email isn't set up)
+     - a volunteer shift sign-up, which files a *Wants to volunteer* request under Today → Needs you with the shift in the note
+     - a membership once it is paid (or at once when membership is free): name and contact details from the form, tagged `Member (joined online)`, with a volunteer request or a lawn-sign note if they ticked those. The fee is never sent.
+     - a "delete my account" request from `/me`, as a request for the desk to do the same in Starbase (it sends the email and name only)
+   - **What is never sent:** donations, monthly gifts, shop orders, event RSVPs, promise-tracker follows, preference changes and anything done in `/admin`. Money is never sent because contribution limits are checked at the desk, where every gift is logged by hand (below). RSVPs, orders and follows stay on the website.
+   - **When Starbase is down or slow,** the visitor's form still works. Sign-ups wait in an outbox and are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, then every 12 hours (by the daily job), and are marked refused after 8 tries. A wrong or revoked key (401) keeps everything waiting, without using up tries, until the key is fixed; the Integrations card shows the problem. Each sign-up carries its own Idempotency-Key, so a retry never makes a second person.
+   - **Before it is connected,** sign-ups are kept as *skipped*, so connecting Starbase later sends only new sign-ups instead of a flood of old ones. Any skipped one can still be sent with **Retry**.
+   - **The treasurer's routine (daily, or as gifts come in).** Open **Admin → Gifts to log at the desk** (`/admin/desk-gifts`, the `money` permission). It lists every online gift not yet logged, oldest first: contributor name, address, city, postal code, email, amount (and net of refunds), slate, kind (donation, membership fee or monthly payment), when it was paid (Pacific time) and the Stripe reference. Refunded gifts and gifts over the limit are flagged. For each one, enter it in Starbase under **Donations → Log a gift**, then click **Mark logged** (or tick several and mark them together). **Download this list (CSV)** gives the same rows. The dashboard shows how many are waiting. The first time, mark any gifts you already entered by hand.
+
+9g. **Turn on the human check (Cloudflare Turnstile).** Every accepted sign-up becomes a supporter record, here and in Starbase, and can file a request for the desk or send an email, so the public forms need their own spam check on top of the hidden honeypot field and the rate limits. Turnstile is free, shows most people nothing at all (no puzzles), sets no advertising cookies and works with screen readers.
+   - In the Cloudflare dashboard, open **Turnstile → Add widget**, add your domain (and the `*.vercel.app` address while testing), and choose **Managed** mode.
+   - Put the **site key** in `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and the **secret key** in `TURNSTILE_SECRET_KEY`, then redeploy (the site key is built into the pages).
+   - With both set, the petition, pledge, newsletter, membership, volunteer, RSVP, promise-follow, `/me` sign-in and preference-link forms all need a pass. If Cloudflare can't be reached, those forms ask people to try again in a moment. The donation and shop checkouts don't use it: Stripe screens payments itself.
+   - Admin → Integrations shows whether it is on.
 
 ## 3. Test, then go live
 
@@ -148,6 +171,8 @@ Two rules keep the two apps compatible:
 | Shop | `orders`, `order_items` |
 | Volunteer shifts | `shift_openings` (published openings), `shifts` (one row per volunteer per shift), `volunteer_tasks` |
 | Promise follows | `promise_follows` |
+| Sent to Starbase | `starbase_outbox` (one row per forwarded sign-up), plus `people.starbase_person_id` |
+| Logged at the desk | `contributions.desk_logged_at` and `desk_logged_by` |
 | Email and text consent | `consent_events` (append-only proof), plus `people.contact_consent_at` and `people.sms_consent_at` as the current state |
 | Everything sent | `email_log`, `sms_log`, `email_campaigns` |
 | Staff and audit | `admin_users`, `admin_sessions`, `audit_log` |

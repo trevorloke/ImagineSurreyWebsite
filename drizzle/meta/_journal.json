@@ -43,6 +43,13 @@
       "when": 1793603695550,
       "tag": "0005_consent_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793925778448,
+      "tag": "0006_starbase_desk",
+      "breakpoints": true
     }
   ]
 }

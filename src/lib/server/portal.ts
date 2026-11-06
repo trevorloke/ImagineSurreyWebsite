@@ -381,9 +381,9 @@ export const DELETION_TAG = "deletion-requested";
  * PIPA gives the organization 30 days to respond. Returns whether this was
  * the first request, so the page can avoid sending the office duplicates.
  */
-export async function requestDeletion(db: Db, person: Person, now = new Date()): Promise<{ first: boolean }> {
-  if (person.tags.includes(DELETION_TAG)) return { first: false };
+export async function requestDeletion(db: Db, person: Person, now = new Date()): Promise<{ first: boolean; date: string }> {
   const date = now.toLocaleDateString("en-CA", { timeZone: "America/Vancouver", year: "numeric", month: "long", day: "numeric" });
+  if (person.tags.includes(DELETION_TAG)) return { first: false, date };
   await db
     .update(people)
     .set({ tags: sql`array_append(${people.tags}, ${DELETION_TAG})`, updatedAt: now })
@@ -404,5 +404,5 @@ export async function requestDeletion(db: Db, person: Person, now = new Date()):
     html: layout({ title: "Deletion request", bodyHtml, siteUrl: env.siteUrl, orgName: org.name, orgEmail: org.email }),
     text: textVersion([`${person.email} asked on ${date} for their account to be deleted.`, `Confirm within 30 days (PIPA). The record is tagged ${DELETION_TAG}.`], { orgName: org.name }),
   });
-  return { first: true };
+  return { first: true, date };
 }

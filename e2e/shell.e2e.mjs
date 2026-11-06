@@ -64,7 +64,9 @@ const browser = await chromium.launch();
   ok((await stat("pledge")) === pledge, `pledge signers on the rail = SQL (${pledge})`);
   ok((await stat("petition")) === petition, `petition signers on the rail = SQL (${petition})`);
   ok(Number(await shown("members")) === members, "with reduced motion the number shows its final value at once");
-  ok((await page.locator('#act-now a[href="/events/shell-rail-meetup"]').count()) === 1, "Next up links to the upcoming event");
+  // Other suites may have added sooner events; the rail shows the next two published ones.
+  const nextTwo = (await sql`select slug from events where published and starts_at >= now() order by starts_at limit 2`).map((e) => e.slug);
+  ok(nextTwo.length > 0 && (await Promise.all(nextTwo.map(async (slug) => (await page.locator(`#act-now a[href="/events/${slug}"]`).count()) === 1))).every(Boolean), `Next up links to the next upcoming events (${nextTwo.join(", ")})`);
   ok((await page.locator('#act-now a[href="/events/shell-hidden-event"]').count()) === 0, "unpublished events stay off the rail");
   ok((await page.locator("#volunteer").textContent()).includes("Shell door-knock in Whalley"), "Next up shows the next published shift opening");
   ok((await page.locator('#volunteer a[href="/volunteer"]').count()) === 1, "the shift card links to /volunteer");

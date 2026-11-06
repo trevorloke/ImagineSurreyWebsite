@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { rsvpSchema } from "@/lib/validation";
 import { Checkbox, ConsentCheckbox, ErrorSummary, Honeypot, LiveRegion, PostalCodeField, SubmitButton, SuccessCard, TextField, TrackingFields } from "./Field";
+import { HumanCheck } from "./HumanCheck";
 import { readForm, useApiForm } from "./useApiForm";
 
 /**
@@ -10,7 +11,7 @@ import { readForm, useApiForm } from "./useApiForm";
  * newsletter, phone, postalCode, smsConsent, source, ref and website.
  */
 export function RsvpForm({ slug, eventTitle }: { slug: string; eventTitle?: string }) {
-  const { submit, pending, error, fields, summaryRef, fail } = useApiForm(`/api/events/${slug}/rsvp`, { schema: rsvpSchema });
+  const { submit, pending, error, fields, summaryRef, fail, human } = useApiForm(`/api/events/${slug}/rsvp`, { schema: rsvpSchema });
   const [done, setDone] = useState(false);
   const [live, setLive] = useState("");
 
@@ -74,6 +75,7 @@ export function RsvpForm({ slug, eventTitle }: { slug: string; eventTitle?: stri
           Send me the Imagine Surrey newsletter too. I can unsubscribe at any time.
         </Checkbox>
         <ConsentCheckbox id="r-sms" kind="sms" error={fields.smsConsent} />
+        <HumanCheck control={human} error={fields.human} />
         <ErrorSummary ref={summaryRef} error={error} fields={fields} />
         <SubmitButton pending={pending} className="btn btn--red btn--lg">
           RSVP

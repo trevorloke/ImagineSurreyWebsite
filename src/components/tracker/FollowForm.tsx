@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Alert, Checkbox, Honeypot, TextField } from "@/components/forms/Field";
+import { HumanCheck } from "@/components/forms/HumanCheck";
 import { readForm, useApiForm } from "@/components/forms/useApiForm";
 import { followCopy } from "@/content/tracker";
 
@@ -9,7 +10,7 @@ type Result = { ok: true; status: "confirmed" | "pending" };
 
 /** Email + the person's own tick → POST /api/tracker/follow. */
 export function FollowForm({ promiseId, promiseNumber }: { promiseId: string; promiseNumber: number }) {
-  const { submit, pending, error, fields } = useApiForm<Result>("/api/tracker/follow");
+  const { submit, pending, error, fields, human } = useApiForm<Result>("/api/tracker/follow");
   const [done, setDone] = useState<Result["status"] | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const doneRef = useRef<HTMLDivElement>(null);
@@ -65,6 +66,7 @@ export function FollowForm({ promiseId, promiseNumber }: { promiseId: string; pr
       <Checkbox name="consent" id="follow-consent" error={fields.consent} aria-invalid={fields.consent ? true : undefined}>
         {followCopy.consent}
       </Checkbox>
+      <HumanCheck control={human} />
       <button type="submit" className="btn btn--navy" aria-busy={pending} aria-disabled={pending} onClick={(e) => pending && e.preventDefault()}>
         {pending ? "Saving…" : followCopy.button}
       </button>

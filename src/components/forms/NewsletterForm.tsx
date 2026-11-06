@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { newsletterSchema } from "@/lib/validation";
 import { Honeypot, LiveRegion, SubmitButton } from "./Field";
 import { useTracking } from "./tracking";
+import { HumanCheck } from "./HumanCheck";
 import { useApiForm } from "./useApiForm";
 
 type Result = { ok: true; status?: "pending" | "subscribed" | "unsubscribed" };
@@ -19,7 +20,7 @@ const MESSAGES: Record<NonNullable<Result["status"]>, string> = {
  * outside the form can point at it (the home page does).
  */
 export function NewsletterForm({ source = "website", id = "nl-email" }: { source?: string; id?: string }) {
-  const { submit, pending, error, fields, fail } = useApiForm<Result>("/api/newsletter", { schema: newsletterSchema });
+  const { submit, pending, error, fields, fail, human } = useApiForm<Result>("/api/newsletter", { schema: newsletterSchema });
   const tracking = useTracking();
   const [done, setDone] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -75,6 +76,7 @@ export function NewsletterForm({ source = "website", id = "nl-email" }: { source
         aria-invalid={message ? true : undefined}
         aria-describedby={message ? `${id}-error` : undefined}
       />
+      <HumanCheck control={human} />
       <SubmitButton pending={pending} className="btn btn--navy" pendingLabel="Sending…">
         Subscribe
       </SubmitButton>

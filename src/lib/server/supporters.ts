@@ -14,6 +14,7 @@ import {
   personNotes,
   promiseFollows,
   smsLog,
+  starbaseOutbox,
 } from "@/lib/db/schema";
 import { escapeLike, PAGE_SIZE, type PeopleQuery } from "@/components/admin/people/query";
 import { pacific, PACIFIC } from "./admin-data";
@@ -411,7 +412,11 @@ export async function anonymizePerson(db: Db, id: string): Promise<{ previousEma
       .set({ firstName: "Removed", lastName: "Supporter", email, address: null, phone: null, postalCode: "", neighbourhood: null, answer: null, source: null })
       .where(eq(campaignSignatures.personId, id));
     await tx.update(eventRsvps).set({ name: "Removed Supporter", email }).where(eq(eventRsvps.personId, id));
-    await tx.update(memberships).set({ memberName: "Removed Supporter", memberAddress: null, memberCity: null, memberPostalCode: null }).where(eq(memberships.personId, id));
+    await tx.update(memberships).set({ memberName: "Removed Supporter", memberAddress: null, memberCity: null, memberPostalCode: null, memberPhone: null }).where(eq(memberships.personId, id));
+    // What was queued for the desk carries their details too. Whatever already
+    // reached Starbase is removed there by staff (people.starbase_person_id,
+    // kept, says which record).
+    await tx.delete(starbaseOutbox).where(or(eq(starbaseOutbox.personId, id), sql`${starbaseOutbox.payload} ->> 'email' = ${person.email}`));
     await tx.delete(promiseFollows).where(sql`${promiseFollows.personId} = ${id} or ${promiseFollows.email} = ${person.email}`);
   });
   return { previousEmail: person.email };

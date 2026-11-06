@@ -234,7 +234,11 @@ export function TrackingFields({ locale = true }: { locale?: boolean }) {
   );
 }
 
-/** The input for an error key: by name first, then by id (for controls that have no name, like the custom amount box). */
+/**
+ * The input for an error key: by name first, then by id (for controls that
+ * have no name, like the custom amount box), then by data-field (the human
+ * check, which is not a form field).
+ */
 function resolveField(form: HTMLFormElement, name: string): HTMLElement | null {
   const item = form.elements.namedItem(name);
   if (item instanceof HTMLElement) return item;
@@ -242,7 +246,7 @@ function resolveField(form: HTMLFormElement, name: string): HTMLElement | null {
     const first = item.item(0);
     return first instanceof HTMLElement ? first : null;
   }
-  const byId = form.querySelector(`#${CSS.escape(name)}`);
+  const byId = form.querySelector(`#${CSS.escape(name)}`) ?? form.querySelector(`[data-field="${CSS.escape(name)}"]`);
   return byId instanceof HTMLElement ? byId : null;
 }
 
