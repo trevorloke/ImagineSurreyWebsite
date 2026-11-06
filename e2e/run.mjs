@@ -4,7 +4,8 @@
 //   npm run e2e              # all suites
 //   npm run e2e -- api       # one suite
 // Environment: E2E_DATABASE_URL (a database that may be WIPED), E2E_PORT,
-// E2E_STRIPE_PORT, E2E_SKIP_BUILD=1 to reuse the last build.
+// E2E_STRIPE_PORT, E2E_SKIP_BUILD=1 to reuse the last build. The desk suite
+// also starts a server on E2E_HUMAN_PORT (default E2E_PORT + 1).
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const dbUrl = process.env.E2E_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/imagine_surrey_e2e";
 const port = Number(process.env.E2E_PORT ?? 3100);
 const stripePort = Number(process.env.E2E_STRIPE_PORT ?? 12111);
-const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell"];
+const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell", "desk"];
 
 const env = {
   ...process.env,
@@ -31,6 +32,14 @@ const env = {
   ADMIN_EMAIL: "admin@example.com",
   ADMIN_PASSWORD: "local-admin-pw",
   ADMIN_SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
+  // Every suite forwards to the fake Starbase in fake-stripe.mjs. The human
+  // check stays off (Cloudflare's widget can't load offline); the desk suite
+  // starts a second server with it on, against the fake siteverify.
+  STARBASE_URL: `http://localhost:${stripePort}`,
+  STARBASE_KEY: "sbk_e2eTestKey0123456789abcdefABCDEF",
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
+  TURNSTILE_SECRET_KEY: "",
+  TURNSTILE_VERIFY_URL: "",
   NODE_ENV: "production",
 };
 

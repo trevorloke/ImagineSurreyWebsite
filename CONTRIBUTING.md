@@ -37,6 +37,8 @@ These conventions keep the site consistent whoever (or whatever) is writing the 
 ## Public forms
 
 - Route handlers under `src/app/api/*` use `parseBody(req, schema, bucket)` (honeypot, rate limit, zod). Schemas live in `src/lib/validation.ts` and must match the form exactly, including `maxLength`s.
+- A public route that creates a record, sends an email or files a request for the desk passes `{ human: true }` to `parseBody` (the Cloudflare Turnstile check, when configured), and its form renders `<HumanCheck control={form.human} />` before the submit button. Stripe checkout routes don't.
+- Forwarding to Starbase (the campaign's database) goes through `src/lib/server/starbase-forward.ts`, after the website has accepted the submission. Never forward money, RSVPs, orders, follows, preference changes or admin edits; `tests/starbase-boundary.test.ts` checks the import graph.
 - Client forms use `useApiForm` and the fields in `src/components/forms/Field.tsx`. Show field errors next to fields and the form error in an `Alert`; move focus to the first error or the success card after submit. Keep submit buttons enabled (use `aria-busy`), so focus never drops.
 - Consent: email requires the person's own tick (`contactConsentAt`); texts require `smsConsentAt`. Newsletter sign-ups are double opt-in when email is configured. Never flip `unsubscribed` back without a confirmation click.
 
@@ -56,7 +58,7 @@ These conventions keep the site consistent whoever (or whatever) is writing the 
 ## Tests
 
 - Unit: `npm test` (vitest, `tests/`). Add tests for pure logic you write.
-- End to end: `npm run e2e` (needs a Postgres database whose name ends in `_e2e` or `_test`, Playwright's Chromium, and nothing on ports 3100/12111; see `e2e/run.mjs`). Add a suite `e2e/<feature>.e2e.mjs` for user-facing flows and register it in `run.mjs`.
+- End to end: `npm run e2e` (needs a Postgres database whose name ends in `_e2e` or `_test`, Playwright's Chromium, and nothing on ports 3100, 3101 and 12111; see `e2e/run.mjs`). Add a suite `e2e/<feature>.e2e.mjs` for user-facing flows and register it in `run.mjs`.
 - Before pushing: `npm run typecheck && npm test && npm run build`, and the relevant e2e suite.
 
 ## Commits

@@ -35,8 +35,13 @@ Staff sign in with email and password, or a one-time emailed link. Owners invite
 | **Email and texts** | A campaign composer with audiences (newsletter, members, lapsed, donors, volunteers, signers, town centre, tag, language), merge fields, a test send and queued sending. Texts are sent only to people who agreed, and every message carries STOP. A log of everything sent. |
 | **Content** | News (with drafts and scheduled posts), events (with RSVP check-in and walk-ins), shop products and campaigns. **Pages** makes free-form pages, **Media** is the image library, and **Site settings** edits every section of copy on the public pages. |
 | **Promise tracker** | Score promises with dated, sourced updates. Followers are emailed when a status changes. |
-| **Integrations** | What's connected (Stripe, email, texts, storage, analytics, cron, database), with test buttons. |
+| **Integrations** | What's connected (Stripe, email, texts, storage, Starbase, the human check, analytics, cron, database), with test buttons. |
+| **Gifts to log at the desk** | Online gifts the treasurer still has to enter in Starbase (Donations → Log a gift), with a CSV and "Mark logged". |
 | **Exports**, **Staff**, **Audit log**, **My account** | |
+
+## Starbase (the desk)
+
+The campaign's database app, Starbase, gets new sign-ups from this website: petition and pledge signatures, confirmed newsletter sign-ups, volunteer shift sign-ups, memberships once they are active, and "delete my account" requests. The website calls Starbase's API from its own server with a secret key (`STARBASE_URL`, `STARBASE_KEY`), through an outbox that retries, so Starbase being down never breaks a form. Donations, RSVPs, orders and follows are never sent: the treasurer logs each online gift at the desk from Admin → Gifts to log at the desk, because that is where contribution limits are checked. Public forms also have a Cloudflare Turnstile human check. See [SETUP.md](SETUP.md) steps 9f and 9g.
 
 ## Consent and privacy, by design
 
@@ -66,7 +71,7 @@ ADMIN_EMAIL=admin@example.com npm run e2e   # builds the site and runs every end
 ADMIN_EMAIL=admin@example.com npm run e2e -- portal forms   # selected suites
 ```
 
-The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unless the name ends in `_e2e` or `_test`. It starts a fake Stripe server, gives each suite a clean staff table and refreshed page caches, and runs these suites: api, shifts, tracker, admin, volunteer, portal, forms, comms, content and shell.
+The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unless the name ends in `_e2e` or `_test`. It starts a fake services server (Stripe, Starbase and Turnstile's check), gives each suite a clean staff table and refreshed page caches, and runs these suites: api, shifts, tracker, admin, volunteer, portal, forms, comms, content, shell and desk. The desk suite also starts a second server, with the human check on, on `E2E_PORT + 1`.
 
 ## Before launch: decisions for the organization
 
