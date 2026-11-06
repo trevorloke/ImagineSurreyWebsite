@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { adminPreviewAllowed } from "@/lib/preview-mode";
 
 // First gate for the admin: every /admin and /api/admin request needs a
 // session cookie with a valid signature and expiry. Pages and actions then
 // check the session row in the database (revocation, deactivated accounts).
 // Runs without a database so it stays fast and can run at the edge.
 
-const OPEN = ["/admin/login", "/api/admin/login", "/api/admin/logout", "/api/admin/magic-link"];
+const OPEN = ["/admin/login", "/api/admin/login", "/api/admin/logout", "/api/admin/magic-link", "/api/admin/preview"];
 const COOKIE = "is_admin_session";
 
 export async function proxy(req: NextRequest) {
@@ -17,6 +18,12 @@ export async function proxy(req: NextRequest) {
   if (secret && cookie && (await verify(cookie, secret))) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  // Preview mode on a local copy: sign in automatically (see src/lib/preview-mode.ts).
+  if (adminPreviewAllowed()) {
+    const preview = new URL("/api/admin/preview", publicOrigin(req));
+    preview.searchParams.set("next", pathname);
+    return NextResponse.redirect(preview);
+  }
   const login = new URL("/admin/login", publicOrigin(req));
   if (pathname !== "/admin") login.searchParams.set("next", pathname);
   const res = NextResponse.redirect(login);

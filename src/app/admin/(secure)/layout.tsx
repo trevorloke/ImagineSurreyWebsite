@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { adminPreviewAllowed } from "@/lib/preview-mode";
 import { can, requireAdmin, ROLE_LABELS, type Permission } from "@/lib/server/admin-auth";
 
 export const metadata: Metadata = { title: "Admin", robots: { index: false } };
@@ -28,6 +29,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await requireAdmin();
   return (
     <div className="admin">
+      {adminPreviewAllowed() && (
+        <p role="status" className="no-print" style={{ margin: 0, padding: "8px 16px", background: "var(--yellow)", color: "var(--navy)", fontWeight: 700 }}>
+          Preview mode: signed in automatically on this local copy. It cannot be turned on for the live site.
+        </p>
+      )}
       <nav className="admin-nav no-print" aria-label="Admin">
         <strong style={{ color: "var(--navy)", fontSize: 18 }}>Imagine Surrey admin</strong>
         {NAV.filter((item) => !item.permission || can(user, item.permission)).map((item) => (

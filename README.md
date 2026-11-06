@@ -62,6 +62,10 @@ npm run dev                     # http://localhost:3000
 
 To change the schema, edit `src/lib/db/schema.ts`, then run `npm run db:generate` and `npm run db:migrate`. Every table must have row-level security turned on.
 
+### Looking around the admin locally
+
+Set `ADMIN_PREVIEW_MODE=1` in `.env.local` and open `http://localhost:3000/admin`: you're signed in as an owner automatically, with a yellow banner saying so. It only works when `DATABASE_URL` points at a database on the same machine, and never on Vercel or Render, so the live site always needs a real sign-in.
+
 ## Tests
 
 ```sh
