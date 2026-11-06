@@ -11,7 +11,7 @@ import { membershipSchema } from "@/lib/validation";
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, membershipSchema, "membership");
+    const parsed = await parseBody(req, membershipSchema, "membership", { human: true });
     if (!parsed.ok) return parsed.response;
     return json(await createMembership(getDb(), parsed.data, publicFormContext(req, parsed.data)));
   });

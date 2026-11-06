@@ -23,7 +23,7 @@ import { signatureSchema } from "@/lib/validation";
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, signatureSchema, "signatures");
+    const parsed = await parseBody(req, signatureSchema, "signatures", { human: true });
     if (!parsed.ok) return parsed.response;
     const data = parsed.data;
     const db = getDb();

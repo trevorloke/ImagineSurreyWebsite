@@ -22,7 +22,7 @@ import { formatLongDate, slotLabel, todayInSurrey, type SignupConfirmation } fro
 // gets the same answer as a new one.
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, volunteerSignupSchema, "volunteer-signup");
+    const parsed = await parseBody(req, volunteerSignupSchema, "volunteer-signup", { human: true });
     if (!parsed.ok) return parsed.response;
     const { openingId, name, email, phone, postalCode, updatesConsent, smsConsent } = parsed.data;
     const db = getDb();

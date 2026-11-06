@@ -7,6 +7,7 @@ import { formatCount } from "@/app/act/milestone";
 import { site } from "@/content/site";
 import { signatureSchema } from "@/lib/validation";
 import { ConsentCheckbox, ErrorSummary, Honeypot, LiveRegion, PostalCodeField, SubmitButton, SuccessCard, TextField, TrackingFields } from "./Field";
+import { HumanCheck } from "./HumanCheck";
 import { readForm, useApiForm } from "./useApiForm";
 
 export type SignatureResult = {
@@ -39,7 +40,7 @@ export function SignatureForm({ campaign, kind, variant, question, heading, onSi
   const resolvedKind = kind ?? variant ?? "petition";
   const petition = resolvedKind === "petition";
   const p = idPrefix ?? `sig-${campaign}`;
-  const { submit, pending, error, fields, summaryRef, fail } = useApiForm<Partial<SignatureResult> & { ok: true }>("/api/signatures", { schema: signatureSchema });
+  const { submit, pending, error, fields, summaryRef, fail, human } = useApiForm<Partial<SignatureResult> & { ok: true }>("/api/signatures", { schema: signatureSchema });
   // A honeypot hit gets a bare {ok:true}; the card still renders, without a count.
   const [done, setDone] = useState<{ campaign: SignatureResult["campaign"]; count: number | null } | null>(null);
   const [live, setLive] = useState("");
@@ -144,6 +145,7 @@ export function SignatureForm({ campaign, kind, variant, question, heading, onSi
         {question && <TextField id={`${p}-answer`} name="answer" label={question} maxLength={200} error={fields.answer} />}
         <ConsentCheckbox id={`${p}-updates`} kind="updates" error={fields.updatesConsent} />
         <ConsentCheckbox id={`${p}-sms`} kind="sms" error={fields.smsConsent} />
+        <HumanCheck control={human} error={fields.human} />
         <ErrorSummary ref={summaryRef} error={error} fields={fields} />
         <SubmitButton pending={pending} className="btn btn--red btn--lg" style={{ minHeight: petition ? 56 : 54, fontSize: 19 }}>
           {petition ? "Add my name" : "Sign the pledge"}

@@ -19,7 +19,7 @@ import { newsletterSchema } from "@/lib/validation";
 // A referral code (body `ref`, else the tracking cookie) is credited once.
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    const parsed = await parseBody(req, newsletterSchema, "newsletter");
+    const parsed = await parseBody(req, newsletterSchema, "newsletter", { human: true });
     if (!parsed.ok) return parsed.response;
     const db = getDb();
     const tracking = trackingFromRequest(req, parsed.data);

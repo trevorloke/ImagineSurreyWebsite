@@ -64,6 +64,7 @@ export default async function IntegrationsPage() {
   const onVercel = Boolean(process.env.VERCEL);
   const analytics = env.plausibleDomain ? `Plausible (${env.plausibleDomain})` : env.gaMeasurementId ? `Google Analytics (${env.gaMeasurementId})` : null;
   const queueStale = stats.email.oldestQueuedAt ? Date.now() - stats.email.oldestQueuedAt.getTime() > 10 * 60_000 : false;
+  const humanKeys = [env.turnstileSiteKey, env.turnstileSecretKey].filter(Boolean).length;
 
   return (
     <AdminPage title="Integrations" intro="What is connected, what is not, and the environment variables that control each one. Keys are set in the hosting dashboard, never here.">
@@ -116,6 +117,29 @@ export default async function IntegrationsPage() {
           {!env.storageEnabled && onVercel && (
             <p className="small" style={{ color: "var(--red-hover)", fontWeight: 700 }}>
               This deployment runs on Vercel without Supabase Storage, so the media library can't accept uploads. Create a public bucket and set the variables.
+            </p>
+          )}
+        </Card>
+        <Card
+          title="Human check (Cloudflare Turnstile)"
+          tone={env.humanCheckEnabled ? "ok" : onVercel ? "bad" : "warn"}
+          rows={[
+            [
+              "Status",
+              env.humanCheckEnabled
+                ? "On: sign-up, RSVP, follow, sign-in and preference-link forms must pass it"
+                : humanKeys === 1
+                  ? "Off: only one of the two keys is set"
+                  : "Off: public forms rely on the honeypot and rate limits only",
+            ],
+            ["Checked by", env.turnstileVerifyUrl],
+          ]}
+          env={["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY", "TURNSTILE_VERIFY_URL"]}
+        >
+          {!env.humanCheckEnabled && (
+            <p className="small" style={{ color: "var(--red-hover)", fontWeight: 700 }}>
+              The live site should have this on: every accepted sign-up becomes a supporter record here and in Starbase, and can file a request for the desk. Make a free
+              Turnstile widget in Cloudflare and set both keys.
             </p>
           )}
         </Card>

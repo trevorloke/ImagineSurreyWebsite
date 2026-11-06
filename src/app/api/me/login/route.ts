@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   return handle(async () => {
     // Five requests a minute per address: tighter than the usual form limit.
     if (rateLimited(req, "member-login", 5)) return error("Too many requests. Please wait a minute and try again.", 429);
-    const parsed = await parseBody(req, schema, "member-login-body");
+    const parsed = await parseBody(req, schema, "member-login-body", { human: true });
     if (!parsed.ok) return parsed.response;
     const { email } = parsed.data;
     // Five links an hour per address, whichever IPs ask: no flooding someone's inbox.

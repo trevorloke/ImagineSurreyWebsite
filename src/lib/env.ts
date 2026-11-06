@@ -116,6 +116,22 @@ export const env = {
     return optional("CRON_SECRET");
   },
 
+  // ── Human check on public forms (Cloudflare Turnstile) ──
+  // The site key is public (it goes to the browser); the secret stays here.
+  get turnstileSiteKey() {
+    return optional("NEXT_PUBLIC_TURNSTILE_SITE_KEY");
+  },
+  get turnstileSecretKey() {
+    return optional("TURNSTILE_SECRET_KEY");
+  },
+  /** Cloudflare's siteverify endpoint; overridable so tests can use a fake. */
+  get turnstileVerifyUrl() {
+    return optional("TURNSTILE_VERIFY_URL") ?? "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+  },
+  get humanCheckEnabled() {
+    return Boolean(this.turnstileSiteKey && this.turnstileSecretKey);
+  },
+
   // ── Analytics: a Plausible domain or GA4 measurement id, injected in the layout ──
   get plausibleDomain() {
     return optional("NEXT_PUBLIC_PLAUSIBLE_DOMAIN");
