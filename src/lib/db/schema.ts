@@ -58,6 +58,9 @@ export const people = pgTable(
     // Relational organizing: the share code this person hands out, and who brought them in.
     referralCode: text("referral_code"),
     referredById: uuid("referred_by_id").references((): AnyPgColumn => people.id, { onDelete: "set null" }),
+    // The id the campaign's database (Starbase, "the desk") answered for this
+    // person, so staff can find the same supporter there.
+    starbasePersonId: text("starbase_person_id"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -92,6 +95,13 @@ export const memberships = pgTable(
     memberCity: text("member_city"),
     memberPostalCode: text("member_postal_code"),
     memberNeighbourhood: text("member_neighbourhood"),
+    memberPhone: text("member_phone"),
+    // The form's own ticks, kept with the membership so what is forwarded to
+    // the desk when it becomes active is what was asked on this form.
+    interestVolunteer: boolean("interest_volunteer").notNull().default(false),
+    interestLawnSign: boolean("interest_lawn_sign").notNull().default(false),
+    // True only when the email-updates tick was recorded in the consent ledger.
+    updatesConsent: boolean("updates_consent").notNull().default(false),
     stripeCheckoutSessionId: text("stripe_checkout_session_id"),
     createdAt: createdAt(),
   },
@@ -146,6 +156,11 @@ export const contributions = pgTable(
     stripeInvoiceId: text("stripe_invoice_id"),
     stripeSubscriptionId: text("stripe_subscription_id"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    // When the treasurer logged this gift at the desk (Starbase → Donations →
+    // Log a gift), where the contribution limits are checked. Online gifts are
+    // never sent to Starbase automatically.
+    deskLoggedAt: timestamp("desk_logged_at", { withTimezone: true }),
+    deskLoggedById: uuid("desk_logged_by").references((): AnyPgColumn => adminUsers.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -773,4 +788,37 @@ export const consentEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("consent_events_person_idx").on(t.personId, t.createdAt), index("consent_events_email_idx").on(t.email, t.createdAt)],
+).enableRLS();
+
+// ── Starbase ("the desk") ─────────────────────────────────────────────────
+// Sign-ups the website forwards to the campaign's database. Public routes
+// only write a row here; delivery happens after the response (and from the
+// daily job), so Starbase being slow or down never touches a visitor's form.
+// The row id is the Idempotency-Key, so a retry never makes a second person.
+// Money, RSVPs, orders and follows are never written here.
+export const starbaseOutboxStatus = pgEnum("starbase_outbox_status", ["pending", "sent", "failed", "skipped"]);
+
+export const starbaseOutbox = pgTable(
+  "starbase_outbox",
+  {
+    id: id(),
+    // petition | pledge | newsletter | volunteer-shift | membership | deletion-request
+    kind: text("kind").notNull(),
+    personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
+    // The exact body sent to POST /in/v1/people.
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: starbaseOutboxStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    starbasePersonId: text("starbase_person_id"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    createdAt: createdAt(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("starbase_outbox_due_idx").on(t.status, t.nextAttemptAt),
+    index("starbase_outbox_person_idx").on(t.personId),
+    index("starbase_outbox_created_idx").on(t.createdAt),
+  ],
 ).enableRLS();

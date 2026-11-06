@@ -99,18 +99,28 @@ export type ConfirmResult = "subscribed" | "unsubscribed" | "invalid";
  * used or expired token.
  */
 export async function confirmSubscription(db: Db, rawToken: string, proof: RequestProof = {}): Promise<ConfirmResult> {
+  return (await confirmSubscriptionDetails(db, rawToken, proof)).result;
+}
+
+/** confirmSubscription, with who was confirmed and where they signed up (for forwarding to the desk). */
+export async function confirmSubscriptionDetails(
+  db: Db,
+  rawToken: string,
+  proof: RequestProof = {},
+): Promise<{ result: ConfirmResult; email?: string; personId?: string | null; source?: string; newlySubscribed?: boolean }> {
   const token = await consumeToken(db, "newsletter-confirm", rawToken);
-  if (!token) return "invalid";
+  if (!token) return { result: "invalid" };
   const now = new Date();
   const issuedAt = typeof token.data?.issuedAt === "string" ? new Date(token.data.issuedAt) : null;
   const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, token.email) });
   let personId = existing?.personId ?? (typeof token.data?.personId === "string" ? token.data.personId : null);
+  const source = typeof token.data?.source === "string" ? token.data.source : (existing?.source ?? "confirm");
 
   if (existing) {
     if (existing.status === "unsubscribed") {
       // Only a link sent after the unsubscribe is the person's own request to come back.
       const fresh = issuedAt && !Number.isNaN(issuedAt.getTime()) && (!existing.unsubscribedAt || issuedAt > existing.unsubscribedAt);
-      if (!fresh) return "unsubscribed";
+      if (!fresh) return { result: "unsubscribed", email: token.email, personId, source };
     }
     await db
       .update(newsletterSubscribers)
@@ -118,7 +128,6 @@ export async function confirmSubscription(db: Db, rawToken: string, proof: Reque
       .where(eq(newsletterSubscribers.id, existing.id));
   } else {
     personId ??= (await findOrCreatePerson(db, token.email, {}, { source: "newsletter" })).id;
-    const source = typeof token.data?.source === "string" ? token.data.source : "confirm";
     await db
       .insert(newsletterSubscribers)
       .values({ email: token.email, personId, status: "subscribed", source, unsubscribeToken: newToken(), confirmedAt: now })
@@ -126,7 +135,7 @@ export async function confirmSubscription(db: Db, rawToken: string, proof: Reque
   }
   personId ??= (await findPersonByEmail(db, token.email))?.id ?? null;
   await recordConsent(db, { personId, email: token.email, channel: "email", purpose: "newsletter", action: "grant", wording: CONFIRM_WORDING, source: "newsletter-confirm", ...proof });
-  return "subscribed";
+  return { result: "subscribed", email: token.email, personId, source, newlySubscribed: existing?.status !== "subscribed" };
 }
 
 /**

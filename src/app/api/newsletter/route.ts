@@ -1,11 +1,14 @@
+import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
+import { newsletterSubscribers } from "@/lib/db/schema";
 import { json, parseBody } from "@/lib/server/api";
 import { creditReferral, trackingFromRequest } from "@/lib/server/attribution";
 import { consentMeta } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
 import { subscribe } from "@/lib/server/newsletter";
 import { findOrCreatePerson } from "@/lib/server/people";
+import { forwardNewsletter } from "@/lib/server/starbase-forward";
 import { newsletterSchema } from "@/lib/validation";
 
 // Request: { email, source?, ref?, website (honeypot) }.
@@ -24,7 +27,12 @@ export async function POST(req: NextRequest) {
     const db = getDb();
     const tracking = trackingFromRequest(req, parsed.data);
     const person = await findOrCreatePerson(db, parsed.data.email, {}, { source: "newsletter" });
-    const status = await subscribe(db, parsed.data.email, parsed.data.source ?? tracking.source ?? "website", person.id, consentMeta(req));
+    const source = parsed.data.source ?? tracking.source ?? "website";
+    const before = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, person.email), columns: { status: true } });
+    const status = await subscribe(db, parsed.data.email, source, person.id, consentMeta(req));
+    // Single opt-in: subscribed now, so the desk's list gets it now. (With
+    // email on, that happens at the confirmation click instead.)
+    if (status === "subscribed" && before?.status !== "subscribed") await forwardNewsletter(db, { personId: person.id, email: person.email, source });
     if (tracking.ref) {
       try {
         await creditReferral(db, person.id, tracking.ref);

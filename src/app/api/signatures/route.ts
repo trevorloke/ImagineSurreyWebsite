@@ -13,6 +13,7 @@ import { subscribe } from "@/lib/server/newsletter";
 import { normalizePhone } from "@/lib/server/sms";
 import { notifySignature } from "@/lib/server/notifications";
 import { findOrCreatePerson } from "@/lib/server/people";
+import { forwardSignature } from "@/lib/server/starbase-forward";
 import { signatureSchema } from "@/lib/validation";
 
 /**
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       .returning({ id: campaignSignatures.id });
 
     const meta = consentMeta(req);
+    let updatesGranted = false;
     if (data.updatesConsent) {
       const granted = await recordConsent(db, {
         personId: person.id,
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
       // address that unsubscribed is only re-subscribed by its own confirmation click.
       const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, email.toLowerCase()), columns: { status: true } });
       if (granted && existing?.status !== "unsubscribed") await subscribe(db, email, `petition:${slug}`, person.id);
+      updatesGranted = granted;
     }
     // Texts only to a number typed into this form, never one already on file.
     if (data.smsConsent && normalizePhone(phone)) {
@@ -85,6 +88,18 @@ export async function POST(req: NextRequest) {
 
     invalidate(TAGS.counters);
     if (inserted) {
+      // A new signature goes to the desk too; Starbase's newsletter only on a recorded grant.
+      await forwardSignature(db, {
+        personId: person.id,
+        campaign: { kind: campaign.kind, slug, title: campaign.title },
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        postalCode,
+        newsletter: updatesGranted,
+      });
       after(async () => {
         try {
           await notifySignature(db, { signatureId: inserted.id });

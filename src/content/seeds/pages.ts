@@ -48,6 +48,8 @@ We do not sell, rent or trade personal information. We share it only with the se
 - **Cloudflare (Turnstile)** checks that our sign-up forms are filled in by a person and not a bot. When you use one, it sees your IP address and technical details about your browser and device. It doesn't use them for advertising, and most people never see a puzzle.
 - **Analytics** (Plausible or Google Analytics, whichever is configured) measures how the site is used.
 
+Sign-ups from this website (petitions, pledges, the newsletter, volunteer shifts and memberships) are also copied into our own organizing database, Starbase, so organizers have one record for each supporter: your name, contact details and what you signed up for. Payment details are never sent to it; our treasurer records contributions there by hand.
+
 Some of these providers store data outside Canada, including in the United States, where it may be subject to the laws of that country. We also disclose information when the law requires it: contribution records to Elections BC, and information requested under a valid legal order.
 
 Board members and staff who need personal information to do their work have access to it, and they are bound by this policy.

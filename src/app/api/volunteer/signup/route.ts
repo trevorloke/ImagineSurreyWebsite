@@ -9,6 +9,7 @@ import { handle } from "@/lib/server/handle";
 import { notifyShiftSignup } from "@/lib/server/notifications";
 import { ensureReferralCode } from "@/lib/server/people";
 import { normalizePhone } from "@/lib/server/sms";
+import { forwardShift } from "@/lib/server/starbase-forward";
 import { withRef } from "@/lib/share";
 import { openingGoogleUrl, signUpForOpening } from "@/lib/server/volunteer";
 import { volunteerSignupSchema } from "@/lib/shift-validation";
@@ -33,9 +34,10 @@ export async function POST(req: NextRequest) {
 
     const meta = consentMeta(req);
     const consentSource = `volunteer:${openingId}`;
-    if (updatesConsent) {
-      await recordConsent(db, { personId: result.personId, email, channel: "email", purpose: "updates", action: "grant", wording: CONSENT_WORDING.updates, source: consentSource, ...meta });
-    }
+    // A public form can't undo an earlier withdrawal: recordConsent refuses, and the desk isn't told either.
+    const updatesGranted = updatesConsent
+      ? await recordConsent(db, { personId: result.personId, email, channel: "email", purpose: "updates", action: "grant", wording: CONSENT_WORDING.updates, source: consentSource, ...meta })
+      : false;
     // Texts only to a number typed into this form, never one already on file.
     if (smsConsent && normalizePhone(phone)) {
       await recordConsent(db, { personId: result.personId, email, channel: "sms", purpose: "sms", action: "grant", wording: CONSENT_WORDING.sms, source: consentSource, ...meta });
@@ -51,6 +53,16 @@ export async function POST(req: NextRequest) {
         }
       });
       invalidate(TAGS.counters);
+      // A new booking is a "Wants to volunteer" request at the desk, with the shift in the note.
+      await forwardShift(db, {
+        personId: result.personId,
+        name,
+        email,
+        phone,
+        postalCode,
+        opening: { title: result.opening.title, date: result.opening.date, slot: result.opening.slot, location: result.opening.location },
+        newsletter: updatesGranted,
+      });
     }
 
     // Their share link credits the people they bring in.

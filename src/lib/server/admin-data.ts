@@ -174,7 +174,7 @@ export async function weeklyTrend(db: Db, weeks = 12): Promise<WeekPoint[]> {
   }));
 }
 
-export type Attention = { failedEmailsToday: number; ordersToFulfil: number; stalePendingMemberships: number; overduePromises: number };
+export type Attention = { failedEmailsToday: number; ordersToFulfil: number; stalePendingMemberships: number; overduePromises: number; deskGiftsToLog: number; starbaseFailed: number };
 
 /** Things an organizer should look at today. */
 export async function needsAttention(db: Db): Promise<Attention> {
@@ -183,13 +183,17 @@ export async function needsAttention(db: Db): Promise<Attention> {
       (select count(*) from email_log where status = 'failed' and created_at >= (${TODAY}::timestamp at time zone ${TZ}))::int as failed_emails_today,
       (select count(*) from orders where status = 'paid')::int as orders_to_fulfil,
       (select count(*) from memberships where status = 'pending_payment' and created_at < now() - interval '1 hour')::int as stale_pending_memberships,
-      (select count(*) from tracker_promises where target_date < ${TODAY} and status not in ('kept', 'broken'))::int as overdue_promises
+      (select count(*) from tracker_promises where target_date < ${TODAY} and status not in ('kept', 'broken'))::int as overdue_promises,
+      (select count(*) from contributions where status in ('succeeded', 'refunded', 'refunded_over_limit') and paid_at is not null and desk_logged_at is null)::int as desk_gifts_to_log,
+      (select count(*) from starbase_outbox where status = 'failed')::int as starbase_failed
   `)) as unknown as Record<string, number>[];
   return {
     failedEmailsToday: Number(row.failed_emails_today),
     ordersToFulfil: Number(row.orders_to_fulfil),
     stalePendingMemberships: Number(row.stale_pending_memberships),
     overduePromises: Number(row.overdue_promises),
+    deskGiftsToLog: Number(row.desk_gifts_to_log),
+    starbaseFailed: Number(row.starbase_failed),
   };
 }
 

@@ -21,6 +21,7 @@ import { notifyDonationSucceeded, notifyMembershipActive, notifyOrderPaid, notif
 import { latestActiveMembershipExpiry } from "./payments";
 import { findOrCreatePerson } from "./people";
 import { getSettings } from "./settings";
+import { forwardMembership } from "./starbase-forward";
 import { issuePendingRefunds, reconcileRefunds } from "./stripe-refunds";
 
 type Tx = Querier;
@@ -496,6 +497,8 @@ async function notify(db: Db, effects: Effects) {
     }
   };
   for (const membershipId of effects.membershipIds) await run("Membership", () => notifyMembershipActive(db, { membershipId }));
+  // A new member goes to the desk too, from the membership's own snapshot (never the fee).
+  for (const membershipId of effects.membershipIds) await forwardMembership(db, membershipId);
   for (const membershipId of effects.feeReturnedMembershipIds) await run("Membership fee returned", () => tellFeeReturned(db, membershipId));
   if (effects.contributionIds.length) await run("Donation", () => notifyDonationSucceeded(db, { contributionIds: effects.contributionIds }));
   for (const recurringDonationId of effects.recurringIds) await run("Recurring gift", () => notifyRecurringStarted(db, { recurringDonationId }));

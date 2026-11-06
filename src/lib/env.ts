@@ -116,6 +116,21 @@ export const env = {
     return optional("CRON_SECRET");
   },
 
+  // ── Starbase ("the desk"): the campaign's database app ──
+  // Called only from this server: the key would be visible to anyone if a
+  // browser sent it, so it never has a NEXT_PUBLIC_ name.
+  /** e.g. https://starbase.imaginesurrey.ca, without a trailing slash. */
+  get starbaseUrl() {
+    return optional("STARBASE_URL")?.trim().replace(/\/+$/, "");
+  },
+  /** A website key from Starbase → Settings → Services → Website keys (sbk_…). */
+  get starbaseKey() {
+    return optional("STARBASE_KEY")?.trim();
+  },
+  get starbaseEnabled() {
+    return Boolean(this.starbaseUrl && this.starbaseKey);
+  },
+
   // ── Human check on public forms (Cloudflare Turnstile) ──
   // The site key is public (it goes to the browser); the secret stays here.
   get turnstileSiteKey() {
