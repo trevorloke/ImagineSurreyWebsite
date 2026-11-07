@@ -13,6 +13,7 @@ export type PreferenceValues = {
   firstName: string | null;
   lastName: string | null;
   phone: string | null;
+  address: string | null;
   postalCode: string | null;
   neighbourhood: string | null;
   locale: string | null;
@@ -32,6 +33,7 @@ export function PreferencesForm({ person }: { person: PreferenceValues }) {
         <TextField id="pref-first" name="firstName" label="First name" defaultValue={v("firstName", person.firstName ?? "")} autoComplete="given-name" maxLength={80} error={fieldError(state, "firstName")} />
         <TextField id="pref-last" name="lastName" label="Last name" defaultValue={v("lastName", person.lastName ?? "")} autoComplete="family-name" maxLength={80} error={fieldError(state, "lastName")} />
       </div>
+      <TextField id="pref-address" name="address" label="Street address" defaultValue={v("address", person.address ?? "")} autoComplete="street-address" maxLength={200} error={fieldError(state, "address")} />
       <div className="form-row">
         <TextField id="pref-phone" name="phone" type="tel" label="Phone" defaultValue={v("phone", person.phone ?? "")} autoComplete="tel" maxLength={30} error={fieldError(state, "phone")} />
         <TextField id="pref-postal" name="postalCode" label="Postal code" defaultValue={v("postalCode", person.postalCode ?? "")} placeholder="A1A 1A1" autoComplete="postal-code" maxLength={10} error={fieldError(state, "postalCode")} />

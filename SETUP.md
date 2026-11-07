@@ -57,6 +57,7 @@ This guide takes the site from this repository to a live website. Supporter data
    | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET` | Image uploads in Admin → Media (step 9c). Optional |
    | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` or `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Analytics, only if you want them |
    | `STARBASE_URL`, `STARBASE_KEY` | The campaign's database, Starbase (step 9f). Optional at first: without them sign-ups stay on the website only |
+   | `STARBASE_INBOUND_KEY` | A long random secret you make (step 9f), so Starbase can pass on unsubscribes and text STOPs made there. Optional: without it the website refuses them |
    | `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | The human check on public forms (step 9g). Turn it on before launch |
 
 7. **Click Deploy.**
@@ -116,8 +117,29 @@ This guide takes the site from this repository to a live website. Supporter data
      - a volunteer shift sign-up, which files a *Wants to volunteer* request under Today → Needs you with the shift in the note
      - a membership once it is paid (or at once when membership is free): name and contact details from the form, tagged `Member (joined online)`, with a volunteer request or a lawn-sign note if they ticked those. The fee is never sent.
      - a "delete my account" request from `/me`, as a request for the desk to do the same in Starbase (it sends the email and name only)
-   - **What is never sent:** donations, monthly gifts, shop orders, event RSVPs, promise-tracker follows, preference changes and anything done in `/admin`. Money is never sent because contribution limits are checked at the desk, where every gift is logged by hand (below). RSVPs, orders and follows stay on the website.
-   - **When Starbase is down or slow,** the visitor's form still works. Sign-ups wait in an outbox and are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, then every 12 hours (by the daily job), and are marked refused after 8 tries. A wrong or revoked key (401) keeps everything waiting, without using up tries, until the key is fixed; the Integrations card shows the problem. Each sign-up carries its own Idempotency-Key, so a retry never makes a second person.
+     - **engagement tags**, so the desk sees who is engaged: a new RSVP adds `RSVP: <event title>` (source `rsvp`, with the name and email), a paid shop order adds `Bought merch` (source `shop`, sent after the Stripe webhook has recorded the payment), and a confirmed promise follow adds `Follows: promise <number>` (source `tracker`). A tag and nothing else: no guests, items, totals or payment details.
+     - **portal edits**: when a signed-in supporter changes their name, phone, street address or postal code at `/me/preferences`, those details (source `portal`). Starbase fills blanks only, so what the desk has on file is never overwritten.
+     - **every withdrawal** (below)
+   - **What is never sent:** money of any kind (donations, monthly gifts, membership fees, order totals and items) and anything staff change in `/admin`. Money is never sent because contribution limits are checked at the desk, where every gift is logged by hand (below).
+   - **Unsubscribes both ways (consent sync).** So that neither app emails or texts someone who said stop, every withdrawal on the website goes to Starbase, and Starbase can send its own to the website.
+     - **Website → Starbase.** A newsletter unsubscribe, unticking email or texts in the preference centre or at `/me`, a text STOP to the website's number, and an anonymized supporter (Admin → Supporters → Anonymize) each send `POST <STARBASE_URL>/in/v1/consent`, with the same website key and an `Idempotency-Key` (the outbox row's id), retried like sign-ups:
+       ```json
+       { "email": "pat@example.com", "channel": "email", "action": "withdraw", "reason": "unsubscribe", "at": "2026-11-07T18:30:00.000Z" }
+       ```
+       `email` and/or `phone` (`+1…`), `channel` is `email` or `sms`, `reason` is `unsubscribe`, `stop`, `preference` or `deletion`, and `at` is when it happened. Starbase should answer `200 { "ok": true }` and apply it the way its own unsubscribe and STOP do. A deletion's address and number are removed from the website's copy once Starbase has them (and nothing is queued for a deletion while Starbase isn't connected).
+     - **Until Starbase has that endpoint** it answers 404. The website treats that as *not supported yet*: the withdrawal stays waiting (never refused, no tries used), is tried again every 6 hours and with **Send now**, and the Integrations card and the outbox page say how many are waiting. Sign-ups keep going meanwhile. Once Starbase has the endpoint, press **Send now** once.
+     - **Starbase → website.** Make a long random secret (`openssl rand -base64 32`), set it as `STARBASE_INBOUND_KEY` on the website and redeploy, and give the same secret to Starbase. Starbase then calls:
+       ```
+       POST https://imaginesurrey.ca/api/in/consent
+       Authorization: Bearer <STARBASE_INBOUND_KEY>
+       Content-Type: application/json
+       Idempotency-Key: <its own id for the change, up to 200 characters>
+
+       { "email": "pat@example.com", "channel": "email", "action": "withdraw", "reason": "unsubscribe", "at": "2026-11-07T10:30:00-08:00" }
+       ```
+       The body has the same shape (`email` and/or `phone`). A withdrawal is applied to everyone here with that email or phone number (in any format): email clears their email consent and unsubscribes the address from the newsletter, sms clears their text consent, and an address nobody here has yet is still recorded, so a public form can't sign it up again. Each one is written to the consent ledger with source `starbase` and to the audit log (without the address), and is never sent back to Starbase. A grant (`"action": "grant"`) is answered but **not applied**: only withdrawals flow between the apps on their own; saying yes again is done on the site where the person sees the wording.
+       Answers: `200 { "ok": true, "applied": <people changed> }`; the same `Idempotency-Key` and body again gives the first answer with `"replayed": true`, and with another body `409`; `400` for a missing `Idempotency-Key` or a body outside the shape (the message names the field); `401` without the right key; `415` if not JSON; `429` over 120 calls a minute; `503` while `STARBASE_INBOUND_KEY` isn't set.
+   - **When Starbase is down or slow,** the visitor's form still works. Sign-ups (and withdrawals) wait in an outbox and are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, then every 12 hours (by the daily job), and are marked refused after 8 tries. A wrong or revoked key (401) keeps everything waiting, without using up tries, until the key is fixed; the Integrations card shows the problem. Each sign-up carries its own Idempotency-Key, so a retry never makes a second person.
    - **Before it is connected,** sign-ups are kept as *skipped*, so connecting Starbase later sends only new sign-ups instead of a flood of old ones. Any skipped one can still be sent with **Retry**.
    - **The treasurer's routine (daily, or as gifts come in).** Open **Admin → Gifts to log at the desk** (`/admin/desk-gifts`, the `money` permission). It lists every online gift not yet logged, oldest first: contributor name, address, city, postal code, email, amount (and net of refunds), slate, kind (donation, membership fee or monthly payment), when it was paid (Pacific time) and the Stripe reference. Refunded gifts and gifts over the limit are flagged. For each one, enter it in Starbase under **Donations → Log a gift**, then click **Mark logged** (or tick several and mark them together). **Download this list (CSV)** gives the same rows. The dashboard shows how many are waiting. The first time, mark any gifts you already entered by hand.
 
@@ -134,6 +156,7 @@ If the site runs on Render instead of Vercel, use a **Web Service** (Node):
 - **Build command:** `npm ci && npm run build:deploy`. On every deploy, except pull-request previews, it runs new database migrations and the starter content, then builds. If that step fails, the deploy stops and the current site stays live.
 - **Start command:** `npm start`. Render supplies the port.
 - **Environment:** the same variables as in step 6, under the service's **Environment** tab. Set `NEXT_PUBLIC_SITE_URL` to the public address people type (e.g. `https://imaginesurrey.ca`), never to `localhost`, then redeploy, because `NEXT_PUBLIC_` values are built into the pages.
+- **Image storage is required.** Render wipes the service's disk on every deploy and restart, so the site refuses uploads to its own disk there (Render sets `RENDER=true`) and Admin → Integrations shows the image storage card in red. Create a public bucket in Supabase Storage and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and, if the bucket isn't named `site-media`, `SUPABASE_MEDIA_BUCKET` before anyone uploads a photo.
 - **Scheduled jobs:** `vercel.json` is ignored on Render. Add a Render **Cron Job** for each daily job, each with `CRON_SECRET` in its environment, so reminders go out and leftover email and Starbase sign-ups are retried:
   - Schedule `7 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/reminders`
   - Schedule `37 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/email`

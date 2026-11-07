@@ -13,9 +13,7 @@ vi.mock("@/lib/server/settings", async () => {
 });
 
 import * as schema from "@/lib/db/schema";
-import { audienceIsEmpty, describeAudience, parseAudience } from "@/lib/email/audience";
 import { classifyInbound, smsSegments, twiml, twilioSignature, twilioSignatureMatches } from "@/lib/email/inbound-sms";
-import { mergeFields, renderCampaignEmail, sampleMergeValues } from "@/lib/email/merge";
 import { donationThanksEmail, membershipWelcomeEmail, promiseStatusEmail, rsvpEmail, shiftConfirmationEmail, shiftWindow, signatureEmail, STOP_LINE } from "@/lib/email/notifications";
 
 const ctx = { siteUrl: "https://imaginesurrey.ca", orgName: "Imagine Surrey", orgEmail: "hello@imaginesurrey.ca" };
@@ -71,46 +69,11 @@ describe("text segments", () => {
   });
 });
 
-describe("merge fields", () => {
-  it("fills known fields and blanks unknown ones", () => {
-    expect(mergeFields("Hi {{first_name}}, see {{ SITE_URL }} {{nope}}", { first_name: "Asha", site_url: "https://x" })).toBe("Hi Asha, see https://x ");
-  });
-  it("renders a campaign with the unsubscribe footer and personal values", () => {
-    const values = { ...sampleMergeValues(ctx, "Asha"), unsubscribe_url: "https://imaginesurrey.ca/newsletter/unsubscribe?token=abc" };
-    const out = renderCampaignEmail(ctx, { subject: "Hello {{first_name}}", preheader: "Preview", body: "Hi {{first_name}},\n\n**Bold** and [a link]({{referral_link}}).\n\n<script>alert(1)</script>" }, values);
-    expect(out.subject).toBe("Hello Asha");
-    expect(out.html).toContain("Hi Asha,");
-    expect(out.html).toContain("<strong>Bold</strong>");
-    expect(out.html).toContain('href="https://imaginesurrey.ca/newsletter/unsubscribe?token=abc"');
-    expect(out.html).toContain("Unsubscribe</a> from these emails");
-    expect(out.html).not.toContain("<script>");
-    expect(out.text).toContain("Unsubscribe: https://imaginesurrey.ca/newsletter/unsubscribe?token=abc");
-    expect(out.html.length).toBeLessThan(100_000);
-  });
-  it("falls back to neighbour without a first name", () => {
-    expect(sampleMergeValues(ctx, null).first_name).toBe("neighbour");
-  });
-});
-
 describe("one-click unsubscribe header", () => {
   it("points mail clients at the API route that accepts the token", async () => {
     const { oneClickUrl } = await import("@/lib/server/email");
     expect(oneClickUrl("https://imaginesurrey.ca/newsletter/unsubscribe?token=abc")).toBe("https://imaginesurrey.ca/api/newsletter/unsubscribe?token=abc");
     expect(oneClickUrl("https://imaginesurrey.ca/other?token=abc")).toBe("https://imaginesurrey.ca/other?token=abc");
-  });
-});
-
-describe("audiences", () => {
-  it("keeps only known lists and valid filters", () => {
-    const a = parseAudience({ lists: ["newsletter", "bogus", "signers", "signers"], campaign: "skytrain-south-surrey", neighbourhood: "Newton", tag: " vip ", language: "pa" });
-    expect(a).toEqual({ lists: ["newsletter", "signers"], campaign: "skytrain-south-surrey", neighbourhood: "Newton", tag: "vip", language: "pa" });
-    expect(parseAudience({ lists: "members", campaign: "x", neighbourhood: "Nowhere", language: "xx" })).toEqual({ lists: ["members"] });
-    expect(audienceIsEmpty(parseAudience({}))).toBe(true);
-    expect(audienceIsEmpty(parseAudience({ tag: "vip" }))).toBe(false);
-  });
-  it("describes itself", () => {
-    expect(describeAudience(parseAudience({ lists: ["members"], neighbourhood: "Newton" }))).toBe("Active members + in Newton");
-    expect(describeAudience(parseAudience({}))).toBe("No audience chosen");
   });
 });
 
@@ -237,10 +200,10 @@ describe.skipIf(!dbUrl)("with a database", () => {
   });
 
   it("confirms a pending address once, records consent, and honours only links sent after an unsubscribe", async () => {
-    const { confirmSubscription, ensureSubscriberToken, unsubscribeByToken } = await import("@/lib/server/newsletter");
+    const { confirmSubscription, unsubscribeByToken } = await import("@/lib/server/newsletter");
     const { createToken } = await import("@/lib/server/tokens");
     const [p] = await db.insert(schema.people).values({ email: email("confirm") }).returning();
-    await ensureSubscriberToken(db, email("confirm"), p.id); // a pending row
+    await db.insert(schema.newsletterSubscribers).values({ email: email("confirm"), personId: p.id, status: "pending", source: "test", unsubscribeToken: `tok-confirm-${run}` }); // a pending row
     const raw = await createToken(db, "newsletter-confirm", email("confirm"), { ttlMinutes: 60, data: { personId: p.id, source: "test", issuedAt: new Date().toISOString() } });
     expect(await confirmSubscription(db, raw)).toBe("subscribed");
     expect(await confirmSubscription(db, raw)).toBe("invalid"); // used
@@ -323,14 +286,6 @@ describe.skipIf(!dbUrl)("with a database", () => {
     await db.delete(schema.trackerPromises).where(eq(schema.trackerPromises.id, promise.id));
   });
 
-  it("creates a pending row with a token for addresses that get bulk email without subscribing", async () => {
-    const { ensureSubscriberToken } = await import("@/lib/server/newsletter");
-    const token = await ensureSubscriberToken(db, email("sukh"), personId);
-    expect(token.length).toBeGreaterThan(20);
-    expect(await ensureSubscriberToken(db, email("sukh"), personId)).toBe(token);
-    expect((await db.query.newsletterSubscribers.findFirst({ where: eq(schema.newsletterSubscribers.email, email("sukh")) }))?.status).toBe("pending");
-  });
-
   it("notifyRsvp logs an RSVP email with the calendar file noted", async () => {
     const { notifyRsvp } = await import("@/lib/server/notifications");
     const [rsvp] = await db.insert(schema.eventRsvps).values({ eventId, personId, name: "Sukh Gill", email: email("sukh"), guests: 1 }).returning();
@@ -380,33 +335,5 @@ describe.skipIf(!dbUrl)("with a database", () => {
     expect(help.reply).toContain("604-555-1234");
     const inbound = await db.select().from(schema.smsLog).where(and(eq(schema.smsLog.personId, personId), like(schema.smsLog.kind, "inbound-%")));
     expect(inbound.map((r) => r.kind).sort()).toEqual(["inbound-help", "inbound-language", "inbound-start", "inbound-stop"]);
-  });
-
-  it("counts an audience, queues one personalised email per recipient, and cancels the rest", async () => {
-    const { campaignProgress, cancelCampaign, countEmailAudience, queueCampaign } = await import("@/lib/server/comms");
-    const { subscribe } = await import("@/lib/server/newsletter");
-    await subscribe(db, email("sukh"), "test", personId); // pending (from the token test) → subscribed
-    expect(await countEmailAudience(db, { lists: ["newsletter"], tag })).toBe(1);
-    expect(await countEmailAudience(db, { lists: ["members"], tag })).toBe(0);
-    expect(await countEmailAudience(db, { lists: ["newsletter"], tag, neighbourhood: "Newton" })).toBe(1);
-    expect(await countEmailAudience(db, { lists: ["newsletter"], tag, neighbourhood: "Whalley" })).toBe(0);
-    expect(await countEmailAudience(db, { lists: [] })).toBe(0);
-
-    const [campaign] = await db
-      .insert(schema.emailCampaigns)
-      .values({ subject: `Hello {{first_name}} ${run}`, preheader: "", body: "Hi {{first_name}}, your link: {{referral_link}}", audience: { lists: ["newsletter"], tag } })
-      .returning();
-    expect(await queueCampaign(db, campaign.id)).toBe(1);
-    const [row] = await db.select().from(schema.emailLog).where(eq(schema.emailLog.campaignId, campaign.id));
-    expect(row.status).toBe("queued");
-    expect(row.subject).toBe(`Hello Sukh ${run}`);
-    expect(row.html).toMatch(/newsletter\/unsubscribe\?token=/);
-    expect(row.html).toMatch(/\?ref=[A-Z2-9]{8}#join/);
-    expect((await db.query.emailCampaigns.findFirst({ where: eq(schema.emailCampaigns.id, campaign.id) }))?.status).toBe("sending");
-    await expect(queueCampaign(db, campaign.id)).rejects.toThrow(/already/);
-
-    expect(await cancelCampaign(db, campaign.id)).toBe(true);
-    expect(await campaignProgress(db, campaign.id)).toEqual({ queued: 0, sent: 0, failed: 0, skipped: 1 });
-    expect(await cancelCampaign(db, campaign.id)).toBe(false);
   });
 });

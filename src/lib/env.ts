@@ -116,6 +116,12 @@ export const env = {
   get storageEnabled() {
     return Boolean(this.supabaseUrl && this.supabaseServiceRoleKey);
   },
+  /** A host whose disk is read-only or wiped on every deploy, so uploads can't be kept on it. */
+  get ephemeralDiskHost(): "Vercel" | "Render" | null {
+    if (process.env.VERCEL) return "Vercel";
+    if (process.env.RENDER === "true") return "Render";
+    return null;
+  },
 
   // ── Scheduled jobs (Vercel Cron calls /api/cron/* with this bearer token) ──
   get cronSecret() {
@@ -135,6 +141,14 @@ export const env = {
   },
   get starbaseEnabled() {
     return Boolean(this.starbaseUrl && this.starbaseKey);
+  },
+  /**
+   * The key Starbase sends to POST /api/in/consent (Authorization: Bearer …),
+   * so a withdrawal made there is applied here. A different secret from
+   * STARBASE_KEY; without it the endpoint refuses every call.
+   */
+  get starbaseInboundKey() {
+    return optional("STARBASE_INBOUND_KEY")?.trim();
   },
 
   // ── Human check on public forms (Cloudflare Turnstile) ──

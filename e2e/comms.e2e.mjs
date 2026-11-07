@@ -1,7 +1,9 @@
-// Communications: newsletter opt-in and unsubscribe, the campaign composer
-// driven in a real browser, text broadcasts, inbound STOP handling, the
-// day-before reminders cron and the log. Email and Twilio are not configured
-// in e2e, so messages are logged as "skipped" but every row still exists.
+// Communications: newsletter opt-in and unsubscribe, inbound STOP handling,
+// the day-before reminders cron and the log. Newsletters, campaign emails
+// and text blasts go out from Starbase, so the admin has no composer or text
+// sender: only the log (checked in a real browser). Email and Twilio are not
+// configured in e2e, so messages are logged as "skipped" but every row still
+// exists.
 import { chromium } from "playwright";
 import { ADMIN_EMAIL, BASE, adminLogin, sql, ok, finish, post } from "./helpers.mjs";
 
@@ -115,100 +117,27 @@ ok(res.headers.get("location")?.includes("missing=1"), "a used unfollow link say
 page = await (await fetch(BASE + "/newsletter/unfollowed")).text();
 ok(page.includes("stopped following"), "unfollowed page renders");
 
-// ── Admin: campaign composer in a real browser ────────────────────────────
+// ── Admin: the log, and no way to send bulk email or texts ───────────────
 const browser = await chromium.launch();
 const bp = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 bp.on("dialog", (d) => d.accept());
 await adminLogin(bp);
 
 await bp.goto(BASE + "/admin/comms");
-ok((await bp.locator("h1").textContent())?.includes("Email"), "comms home renders");
+ok((await bp.locator("h1").textContent())?.includes("Email & text log"), "Email & texts is the log");
+ok((await bp.locator("[role=note]").textContent())?.includes("go out from Starbase"), "it says newsletters and texts go out from Starbase");
 ok((await bp.locator(".stat").filter({ hasText: "Confirmed subscribers" }).locator(".value").textContent()) === String((await sql`select count(*)::int c from newsletter_subscribers where status='subscribed' and confirmed_at is not null`)[0].c), "stats show confirmed subscribers");
-
-await bp.goto(BASE + "/admin/comms/new");
-await bp.fill("#c-subject", "Hello {{first_name}}");
-await bp.fill("#c-preheader", "An e2e campaign");
-await bp.fill("#c-body", "Hi {{first_name}},\n\nYour link: {{referral_link}}\n\nSite: {{site_url}}");
-await bp.locator("input[name=lists][value=newsletter]").check();
-await bp.fill("input[name=tag]", TAG);
-await bp.locator(".audience-count", { hasText: "2 people" }).waitFor({ timeout: 10_000 });
-ok(true, "live count shows 2 confirmed subscribers (unsubscribed and non-subscribers left out)");
-await bp.locator("input[name=lists][value=members]").check();
-await bp.locator(".audience-count", { hasText: "0 people" }).waitFor({ timeout: 10_000 });
-ok(true, "lists combine with AND (subscribers who are also members: 0)");
-await bp.locator("input[name=lists][value=members]").uncheck();
-await bp.locator(".audience-count", { hasText: "2 people" }).waitFor({ timeout: 10_000 });
-
-await activate("button[name=intent][value=save]");
-await bp.waitForURL(/\/admin\/comms\/[0-9a-f-]{36}$/, { timeout: 15_000 });
-const campaignId = bp.url().split("/").pop();
-let campaign = (await sql`select * from email_campaigns where id = ${campaignId}`)[0];
-ok(campaign?.status === "draft" && campaign.subject === "Hello {{first_name}}" && campaign.audience.lists[0] === "newsletter" && campaign.audience.tag === TAG, "draft saved with its audience");
-ok((await bp.locator("iframe.email-preview").count()) === 1, "campaign page shows a preview");
-
-await bp.locator(".audience-count", { hasText: "2 people" }).waitFor({ timeout: 10_000 });
-await activate("button[name=intent][value=test]");
-await notice(/test/);
-const test = await eventually(async () => (await sql`select * from email_log where kind = 'campaign-test' and "to" = ${ADMIN_EMAIL.toLowerCase()} order by created_at desc limit 1`)[0], "test email row");
-ok(test?.subject === "[Test] Hello Owner" && test.status === "skipped" && test.campaign_id === null, `test email logged to the admin (${test?.subject}, ${test?.status})`);
-
-await activate("button[name=intent][value=send]");
-await notice(/Sending to 2 people/);
-const rows = await eventually(async () => {
-  const rows = await sql`select * from email_log where campaign_id = ${campaignId} order by "to"`;
-  return rows.length === 2 && rows.every((r) => r.status === "skipped") ? rows : null;
-}, "campaign rows skipped");
-ok(rows?.length === 2 && rows.every((r) => r.status === "skipped"), "one email_log row per recipient, sent by the first batch after the response (skipped: no email key)");
-ok(rows?.every((r) => /newsletter\/unsubscribe\?token=/.test(r.html)) && rows?.every((r) => r.html.includes("Unsubscribe</a> from these emails")), "every campaign email carries the recipient's unsubscribe link");
-ok(rows?.[0]?.subject === "Hello Sukh" && rows?.[1]?.subject === "Hello Maria" && rows[0].html.includes("Hi Sukh,"), "merge fields personalise subject and body");
-ok(rows?.every((r) => /\?ref=[A-Z2-9]{8}#join/.test(r.html)), "referral links carry each recipient's own code");
-const tokens = await sql`select email, status from newsletter_subscribers where email in ('sub1@comms.example', 'sub2@comms.example')`;
-ok(tokens.length === 2 && tokens.every((t) => t.status === "subscribed"), "existing subscriber rows untouched by the send");
-campaign = await eventually(async () => {
-  const c = (await sql`select * from email_campaigns where id = ${campaignId}`)[0];
-  return c.status === "sent" ? c : null;
-}, "campaign status sent");
-ok(campaign?.status === "sent" && campaign.recipient_count === 2 && campaign.failed_count === 2 && campaign.sent_count === 0, `campaign finishes as sent with counts (${campaign?.status}, ${campaign?.recipient_count} recipients)`);
+ok((await bp.getByRole("link", { name: /New email campaign|Send a text/ }).count()) === 0 && (await bp.locator("textarea, #c-subject, #sms-message").count()) === 0, "no composer and no text sender");
+const cookie = (await bp.context().cookies()).map((c) => `${c.name}=${c.value}`).join("; ");
+for (const path of ["/admin/comms/new", "/admin/comms/sms", "/admin/comms/00000000-0000-4000-8000-000000000000"]) {
+  ok((await fetch(BASE + path, { headers: { cookie } })).status === 404, `${path} is gone`);
+}
+const [sentCampaign] = await sql`insert into email_campaigns (subject, preheader, body, audience, status, recipient_count, sent_count, failed_count, sent_at) values ('E2E earlier campaign', '', 'Hi', '{"lists":["newsletter"]}', 'sent', 2, 2, 0, now()) returning id`;
 await bp.reload();
-ok((await bp.locator(".msg-status--sent").count()) >= 1 && (await bp.locator(".progress-row").textContent())?.includes("Skipped"), "campaign page shows progress after sending");
-ok((await bp.locator("#c-subject").count()) === 0, "a sent campaign is no longer editable");
-
-// A members-only campaign goes to the member with consent, with a fresh unsubscribe token.
-await bp.goto(BASE + "/admin/comms/new");
-await bp.fill("#c-subject", "Members only");
-await bp.fill("#c-body", "Hi {{first_name}}, thanks for being a member. {{unsubscribe_url}}");
-await bp.locator("input[name=lists][value=members]").check();
-await bp.fill("input[name=tag]", TAG);
-await bp.locator(".audience-count", { hasText: "1 person" }).waitFor({ timeout: 10_000 });
-await activate("button[name=intent][value=save]");
-await bp.waitForURL(/\/admin\/comms\/[0-9a-f-]{36}$/, { timeout: 15_000 });
-const membersCampaignId = bp.url().split("/").pop();
-await bp.locator(".audience-count", { hasText: "1 person" }).waitFor({ timeout: 10_000 });
-await activate("button[name=intent][value=send]");
-await notice(/Sending to 1 person/);
-const memberRow = await eventually(async () => (await sql`select * from email_log where campaign_id = ${membersCampaignId}`)[0], "member row");
-const memberSub = (await sql`select * from newsletter_subscribers where email = 'member@comms.example'`)[0];
-ok(memberRow?.to === "member@comms.example" && memberSub?.status === "pending" && memberRow.html.includes(`token=${memberSub.unsubscribe_token}`), "a member without a newsletter row gets a pending row and its token in the email");
-
-// ── Admin: text broadcast ─────────────────────────────────────────────────
-await bp.goto(BASE + "/admin/comms/sms");
-await bp.fill("input[name=tag]", TAG);
-await bp.locator(".audience-count", { hasText: "3 people" }).waitFor({ timeout: 10_000 });
-ok(true, "text audience counts people with SMS consent and a valid number (3)");
-await bp.fill("#sms-message", "Imagine Surrey: town hall Thursday 7pm at Newton Seniors Centre.");
-ok((await bp.locator(".sms-counter .is-warning").count()) === 1, "composer warns when the STOP line is missing");
-await activate("button[type=submit].btn--red");
-ok(await notice(/Texts must end with .Reply STOP to opt out/), "server refuses a text without the STOP line");
-await bp.fill("#sms-message", "Imagine Surrey: town hall Thursday 7pm at Newton Seniors Centre. Reply STOP to opt out");
-ok((await bp.locator(".sms-counter").textContent())?.includes("1 text segment"), "counter shows characters and segments");
-await activate("button[type=submit].btn--red");
-await notice(/Sending 3 texts/);
-const texts = await eventually(async () => {
-  const t = await sql`select * from sms_log where kind = 'broadcast' order by "to"`;
-  return t.length === 3 ? t : null;
-}, "broadcast texts");
-ok(texts?.length === 3 && texts.every((t) => t.status === "skipped" && t.body.endsWith("Reply STOP to opt out")), "one sms_log row per consenting recipient (skipped: no Twilio)");
-ok(texts?.map((t) => t.to).join(",") === "+16045550101,+16045550102,+16045550103", "numbers are normalized to E.164");
+const earlier = bp.locator("section", { hasText: "Earlier campaigns" });
+ok((await earlier.count()) === 1 && (await earlier.textContent()).includes("E2E earlier campaign") && (await earlier.locator("a, button").count()) === 0, "earlier campaigns are listed read-only");
+ok(!(await earlier.textContent()).includes("What's happening in your neighbourhood"), "the seeded draft is not listed");
+await sql`delete from email_campaigns where id = ${sentCampaign.id}`;
 
 // ── RSVP confirmation (the public route calls notifyRsvp) ─────────────────
 await sql`insert into events (slug, title, starts_at, location, summary) values ('comms-next-week', 'Next week meetup', now() + interval '7 days', 'Bear Creek Park', 'Come along.') on conflict (slug) do nothing`;
@@ -248,8 +177,11 @@ ok((await sql`select sms_consent_at from people where email = 'sub1@comms.exampl
 // the number out for all of them and logs one inbound row for the number.
 ok((await sql`select count(*)::int c from sms_log where kind = 'inbound-stop' and "to" = '+16045550101'`)[0].c === 1, "STOP is logged");
 ok((await sql`select count(*)::int c from consent_events where person_id = ${sub1.id} and channel = 'sms' and action = 'withdraw' and source = 'sms-stop'`)[0].c === 1, "STOP records an SMS withdrawal in the consent ledger");
+const stopRows = await sql`select * from starbase_outbox where kind = 'consent' and payload->>'phone' = '+16045550101'`;
+ok(stopRows.length === 1 && stopRows[0].endpoint === "/in/v1/consent" && stopRows[0].payload.channel === "sms" && stopRows[0].payload.reason === "stop" && stopRows[0].payload.action === "withdraw", "STOP is passed to Starbase as a consent withdrawal for the number");
 t = await inbound("START");
 ok((await sql`select sms_consent_at from people where email = 'sub1@comms.example'`)[0].sms_consent_at !== null && t.text.includes("Reply STOP to opt out"), "START restores consent and the reply ends with the STOP line");
+ok((await sql`select count(*)::int c from starbase_outbox where kind = 'consent' and payload->>'phone' = '+16045550101'`)[0].c === 1, "START sends nothing to Starbase (only withdrawals flow on their own)");
 t = await inbound("Punjabi");
 ok((await sql`select locale from people where email = 'sub1@comms.example'`)[0].locale === "pa" && t.text.includes("Punjabi"), "PUNJABI sets the locale and is acknowledged");
 t = await inbound("HELP");
@@ -262,6 +194,7 @@ ok(t.text.includes(BASE.replace(/^https?:\/\//, "")) || t.text.includes("localho
 // ── Log and resend ────────────────────────────────────────────────────────
 await sql`insert into email_log ("to", kind, subject, html, text, status, error, attempts) values ('fail@comms.example', 'rsvp', 'Failed once', '<p>Hello</p>', 'Hello', 'failed', 'Connection reset', 3)`;
 await bp.goto(BASE + "/admin/comms/log?status=failed&q=fail%40comms");
+ok(new URL(bp.url()).pathname === "/admin/comms" && new URL(bp.url()).searchParams.get("q") === "fail@comms", "an old link to the log lands on Email & texts with its filters");
 ok((await bp.locator("table tbody tr").count()) === 1 && (await bp.locator("table").textContent())?.includes("Connection reset"), "log filters to the failed email and shows its error");
 await activate("text=Resend");
 await notice(/Queued/);
@@ -270,7 +203,7 @@ const copies = await eventually(async () => {
   return c.length === 2 && c[1].status !== "queued" ? c : null;
 }, "resent copy processed");
 ok(copies?.length === 2 && copies[0].status === "failed" && copies[1].status === "skipped", "resend copies the row into the queue and the original stays failed");
-await bp.goto(BASE + "/admin/comms/log?channel=sms&kind=inbound-stop");
+await bp.goto(BASE + "/admin/comms?channel=sms&kind=inbound-stop");
 ok((await bp.locator("table tbody tr").count()) === 1 && (await bp.locator("table").textContent())?.includes("Received: STOP"), "log shows inbound texts");
 
 await browser.close();

@@ -34,18 +34,22 @@ function parseForm(body) {
   return out;
 }
 
-// ── Fake Starbase: GET /in/v1/ping and POST /in/v1/people ────────────────
+// ── Fake Starbase: GET /in/v1/ping, POST /in/v1/people, /in/v1/consent ───
 // The same rules as Starbase's server/ext/intake/index.js: a Bearer website
 // key, JSON only, the same strict field schema and limits, and
 // Idempotency-Key replays (same key + same body → the first answer with
-// replayed: true; same key + another body → 409). Test-only endpoints:
-// GET /__starbase lists every request; POST /__starbase/fail {status, times}
-// answers the next `times` requests with `status`; POST /__starbase/key {key}
-// changes the accepted key (as if the old one were revoked); POST
-// /__starbase/reset clears it all.
+// replayed: true; same key + another body → 409). POST /in/v1/consent (the
+// consent withdrawals the website sends) answers 404, as a Starbase without
+// the endpoint does, until it is switched on. Test-only endpoints:
+// GET /__starbase lists every request; POST /__starbase/fail {status, times,
+// path?} answers the next `times` requests (to `path`, if given) with
+// `status`; POST /__starbase/key {key} changes the accepted key (as if the
+// old one were revoked); POST /__starbase/consent {supported} switches the
+// consent endpoint on or off; POST /__starbase/reset clears it all.
 // The key the site is given (run.mjs sets STARBASE_KEY for both).
 const STARBASE_TEST_KEY = process.env.STARBASE_KEY || "sbk_e2eTestKey0123456789abcdefABCDEF";
-const starbase = { key: STARBASE_TEST_KEY, requests: [], fail: { status: 0, times: 0 }, idem: new Map(), people: new Map() };
+const starbaseInitial = () => ({ key: STARBASE_TEST_KEY, requests: [], fail: { status: 0, times: 0, path: null }, idem: new Map(), people: new Map(), consentSupported: false });
+const starbase = starbaseInitial();
 const str = (max) => z.string().trim().max(max).optional().nullable();
 const personIn = z
   .object({
@@ -67,6 +71,17 @@ const personIn = z
   .strict()
   .refine((v) => v.email || v.phone, { message: "an email or a phone" })
   .refine((v) => v.name || v.first_name || v.last_name || v.email, { message: "a name" });
+const consentIn = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(320).optional(),
+    phone: str(40),
+    channel: z.enum(["email", "sms"]),
+    action: z.literal("withdraw"),
+    reason: z.enum(["unsubscribe", "stop", "preference", "deletion"]),
+    at: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .refine((v) => v.email || v.phone, { message: "an email or a phone" });
 
 function fakeStarbase(req, res, url, raw) {
   const send = (status, o) => {
@@ -77,9 +92,10 @@ function fakeStarbase(req, res, url, raw) {
   if (url.pathname === "/__starbase" && req.method === "GET") return send(200, starbase.requests);
   if (url.pathname.startsWith("/__starbase/")) {
     const p = raw ? JSON.parse(raw) : {};
-    if (url.pathname === "/__starbase/fail") starbase.fail = { status: Number(p.status) || 0, times: Number(p.times) || 0 };
+    if (url.pathname === "/__starbase/fail") starbase.fail = { status: Number(p.status) || 0, times: Number(p.times) || 0, path: p.path ? String(p.path) : null };
     if (url.pathname === "/__starbase/key") starbase.key = String(p.key ?? STARBASE_TEST_KEY);
-    if (url.pathname === "/__starbase/reset") Object.assign(starbase, { key: STARBASE_TEST_KEY, requests: [], fail: { status: 0, times: 0 }, idem: new Map(), people: new Map() });
+    if (url.pathname === "/__starbase/consent") starbase.consentSupported = p.supported === true;
+    if (url.pathname === "/__starbase/reset") Object.assign(starbase, starbaseInitial());
     return send(200, { ok: true });
   }
   let body = null;
@@ -102,17 +118,18 @@ function fakeStarbase(req, res, url, raw) {
     record.answer = o;
     return send(status, o);
   };
-  if (starbase.fail.times > 0) {
+  if (starbase.fail.times > 0 && (!starbase.fail.path || starbase.fail.path === url.pathname)) {
     starbase.fail.times -= 1;
     return answer(starbase.fail.status, { error: `simulated ${starbase.fail.status}` });
   }
   const m = /^Bearer\s+(sbk_[A-Za-z0-9]{20,})$/.exec(req.headers.authorization || "");
   if (!m || m[1] !== starbase.key) return answer(401, { error: "a valid key goes in the Authorization header: Bearer sbk_…" });
   if (req.method === "GET" && url.pathname === "/in/v1/ping") return answer(200, { ok: true, campaign: "Imagine Surrey (test)", key: "Website" });
-  if (req.method !== "POST" || url.pathname !== "/in/v1/people") return answer(404, { error: "not found" });
+  const consent = url.pathname === "/in/v1/consent" && starbase.consentSupported;
+  if (req.method !== "POST" || !(url.pathname === "/in/v1/people" || consent)) return answer(404, { error: "not found" });
   if (!/^application\/json\b/i.test(req.headers["content-type"] || "")) return answer(415, { error: "send JSON (Content-Type: application/json)" });
   if (body === null) return answer(400, { error: "the body isn’t JSON" });
-  const parsed = personIn.safeParse(body);
+  const parsed = (consent ? consentIn : personIn).safeParse(body);
   if (!parsed.success) {
     const i = parsed.error.issues[0];
     return answer(400, { error: `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}` });
@@ -123,6 +140,10 @@ function fakeStarbase(req, res, url, raw) {
     const prev = starbase.idem.get(idem);
     if (prev.hash !== hash) return answer(409, { error: "that Idempotency-Key was used with a different body" });
     return answer(200, { ok: true, ...prev.answer, replayed: true });
+  }
+  if (consent) {
+    if (idem) starbase.idem.set(idem, { hash, answer: {} });
+    return answer(200, { ok: true });
   }
   const who = parsed.data.email || `${parsed.data.name ?? ""}|${parsed.data.phone ?? ""}`;
   const personId = starbase.people.get(who) ?? randomUUID();

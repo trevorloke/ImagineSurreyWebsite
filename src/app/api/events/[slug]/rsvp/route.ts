@@ -13,6 +13,7 @@ import { subscribe } from "@/lib/server/newsletter";
 import { notifyRsvp } from "@/lib/server/notifications";
 import { findOrCreatePerson } from "@/lib/server/people";
 import { normalizePhone } from "@/lib/server/sms";
+import { forwardRsvp } from "@/lib/server/starbase-forward";
 import { rsvpRequestSchema } from "@/lib/shift-validation";
 
 const FULL = "This event is full. Get the newsletter and we'll tell you about the next one.";
@@ -100,6 +101,8 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/events/[slu
           console.error("RSVP notification failed", err);
         }
       });
+      // The desk sees who is coming: an "RSVP: <event>" tag on the person, nothing more.
+      await forwardRsvp(db, { personId: person.id, name, email, eventTitle: event.title });
       // The public pages show how many are going and the spots left.
       invalidate(TAGS.counters);
     }

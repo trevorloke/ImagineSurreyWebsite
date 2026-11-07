@@ -8,6 +8,7 @@ import { newsletterConfirmEmail } from "@/lib/email/messages";
 import { emailContext, sendEmail } from "./email";
 import { recordConsent } from "./consent";
 import { findOrCreatePerson, findPersonByEmail } from "./people";
+import { forwardConsentWithdrawal } from "./starbase-forward";
 import { consumeToken, createToken, tokenUrl } from "./tokens";
 
 export type SubscribeStatus = "pending" | "subscribed" | "unsubscribed";
@@ -139,9 +140,9 @@ export async function confirmSubscriptionDetails(
 }
 
 /**
- * Stop bulk email for a token from an email link, and record the withdrawal
- * in the consent ledger (which also clears the person's contact consent).
- * Returns whether a row changed.
+ * Stop bulk email for a token from an email link, record the withdrawal in
+ * the consent ledger (which also clears the person's contact consent) and
+ * pass it to Starbase. Returns whether a row changed.
  */
 export async function unsubscribeByToken(db: Db, token: string, proof: RequestProof = {}): Promise<boolean> {
   if (!token || token.length > 200) return false;
@@ -154,33 +155,9 @@ export async function unsubscribeByToken(db: Db, token: string, proof: RequestPr
   const { email, personId } = rows[0];
   const id = personId ?? (await findPersonByEmail(db, email))?.id ?? null;
   await recordConsent(db, { personId: id, email, channel: "email", purpose: "updates", action: "withdraw", source: "unsubscribe", ...proof });
+  // Starbase stops emailing them too.
+  await forwardConsentWithdrawal(db, { personId: id, email, channel: "email", reason: "unsubscribe" });
   return true;
-}
-
-/**
- * The unsubscribe token for an address that is about to get a bulk email,
- * creating a "pending" subscriber row when the address has none. Every
- * campaign email carries this link, members and donors included, and an
- * unsubscribed address drops out of every audience.
- */
-export async function ensureSubscriberToken(db: Db, email: string, personId: string | null): Promise<string> {
-  const normalized = email.trim().toLowerCase();
-  const existing = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, normalized), columns: { unsubscribeToken: true } });
-  if (existing) return existing.unsubscribeToken;
-  const [inserted] = await db
-    .insert(newsletterSubscribers)
-    .values({ email: normalized, personId, status: "pending", source: "campaign", unsubscribeToken: newToken() })
-    .onConflictDoNothing({ target: newsletterSubscribers.email })
-    .returning({ unsubscribeToken: newsletterSubscribers.unsubscribeToken });
-  if (inserted) return inserted.unsubscribeToken;
-  const row = await db.query.newsletterSubscribers.findFirst({ where: eq(newsletterSubscribers.email, normalized), columns: { unsubscribeToken: true } });
-  if (!row) throw new Error(`No subscriber row for ${normalized}`);
-  return row.unsubscribeToken;
-}
-
-/** The link in a campaign email that stops future bulk email for this subscriber. */
-export function unsubscribeUrlFor(token: string): string {
-  return tokenUrl("/newsletter/unsubscribe", token);
 }
 
 /** Stop promise-status emails for one follow link. Returns whether a follow was removed. */
