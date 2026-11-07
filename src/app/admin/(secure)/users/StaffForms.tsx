@@ -54,11 +54,12 @@ export type StaffControlsProps = {
   role: Role;
   active: boolean;
   passwordSet: boolean;
+  twoFactor: boolean;
   isSelf: boolean;
   actorIsOwner: boolean;
   emailEnabled: boolean;
   roles: RoleOption[];
-  actions: { changeRole: Action; deactivate: Action; reactivate: Action; resetPassword: Action; resendLink: Action };
+  actions: { changeRole: Action; deactivate: Action; reactivate: Action; resetPassword: Action; resendLink: Action; resetTwoFactor: Action };
 };
 
 /** Role, active state, password reset and sign-in link for one account. */
@@ -67,7 +68,9 @@ export function StaffControls(p: StaffControlsProps) {
   const [activeState, setActive] = useActionState(p.active ? p.actions.deactivate : p.actions.reactivate, null);
   const [resetState, resetPassword] = useActionState(p.actions.resetPassword, null);
   const [linkState, resendLink] = useActionState(p.actions.resendLink, null);
-  const notices = [roleState, activeState, resetState, linkState].filter(Boolean);
+  const [twoFactorState, resetTwoFactor] = useActionState(p.actions.resetTwoFactor, null);
+  const states = [roleState, activeState, resetState, linkState, twoFactorState];
+  const notices = states.filter(Boolean);
   return (
     <>
       <div className="staff__controls">
@@ -104,6 +107,18 @@ export function StaffControls(p: StaffControlsProps) {
             </SubmitButton>
           </form>
         )}
+        {p.actorIsOwner && !p.isSelf && p.twoFactor && (
+          <form action={resetTwoFactor}>
+            <input type="hidden" name="id" value={p.id} />
+            <SubmitButton
+              className="btn btn--outline btn--compact"
+              pendingText="Resetting…"
+              confirm={`Reset ${p.name}'s two-factor sign-in? Their authenticator app and recovery codes stop working and they are signed out everywhere.`}
+            >
+              Reset two-factor
+            </SubmitButton>
+          </form>
+        )}
         {p.emailEnabled && p.active && (
           <form action={resendLink}>
             <input type="hidden" name="id" value={p.id} />
@@ -115,7 +130,7 @@ export function StaffControls(p: StaffControlsProps) {
       </div>
       {notices.length > 0 && (
         <div className="staff__notice stack" style={{ gap: 8 }}>
-          {[roleState, activeState, resetState, linkState].map((s, i) => (
+          {states.map((s, i) => (
             <Notice key={i} state={s} />
           ))}
         </div>
