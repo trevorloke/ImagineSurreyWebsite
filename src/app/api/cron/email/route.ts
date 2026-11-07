@@ -13,13 +13,14 @@ import { pruneVisits } from "@/lib/server/visits";
 // the Hobby plan.
 // Vercel Cron calls this daily (see vercel.json; any plan allows daily jobs)
 // with "Authorization: Bearer $CRON_SECRET"; on a paid plan it can run more often.
-// Without CRON_SECRET it only answers requests from the same machine.
+// Without CRON_SECRET it refuses every call on Vercel and Render; elsewhere
+// (a local copy) it answers anyone who can reach it.
 // Long enough to work through a backlog; Vercel allows 60 seconds on every plan.
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
-  if (env.cronSecret ? auth !== `Bearer ${env.cronSecret}` : process.env.VERCEL) return error("Not allowed.", 401);
+  if (env.cronSecret ? auth !== `Bearer ${env.cronSecret}` : process.env.VERCEL || process.env.RENDER) return error("Not allowed.", 401);
   const db = getDb();
   const started = Date.now();
   const result = await drainQueue(db, 35_000);

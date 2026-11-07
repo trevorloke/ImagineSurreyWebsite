@@ -157,7 +157,7 @@ If the site runs on Render instead of Vercel, use a **Web Service** (Node):
 - **Start command:** `npm start`. Render supplies the port.
 - **Environment:** the same variables as in step 6, under the service's **Environment** tab. Set `NEXT_PUBLIC_SITE_URL` to the public address people type (e.g. `https://imaginesurrey.ca`), never to `localhost`, then redeploy, because `NEXT_PUBLIC_` values are built into the pages.
 - **Image storage is required.** Render wipes the service's disk on every deploy and restart, so the site refuses uploads to its own disk there (Render sets `RENDER=true`) and Admin → Integrations shows the image storage card in red. Create a public bucket in Supabase Storage and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and, if the bucket isn't named `site-media`, `SUPABASE_MEDIA_BUCKET` before anyone uploads a photo.
-- **Scheduled jobs:** `vercel.json` is ignored on Render. Add a Render **Cron Job** for each daily job, each with `CRON_SECRET` in its environment, so reminders go out and leftover email and Starbase sign-ups are retried:
+- **Scheduled jobs:** `vercel.json` is ignored on Render. Add a Render **Cron Job** for each daily job, each with `CRON_SECRET` in its environment, so reminders go out and leftover email and Starbase sign-ups are retried. Set `CRON_SECRET` on the web service too: without it, both job URLs refuse every call on Render.
   - Schedule `7 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/reminders`
   - Schedule `37 17 * * *`, command `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://imaginesurrey.ca/api/cron/email`
 
