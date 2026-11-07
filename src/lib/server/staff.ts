@@ -149,6 +149,23 @@ export async function resetStaffTwoFactor(db: Db, actor: AdminUser, id: string):
   await revokeAllSessions(db, id);
 }
 
+/**
+ * For the dashboard's "Needs attention": a nudge when only one active owner
+ * holds the keys (if that account is lost, so is the admin), or when an
+ * owner is still called "Owner", the bootstrap account's placeholder name.
+ */
+export async function ownersAttention(db: Db): Promise<{ text: string; href: string } | null> {
+  const owners = await db.select({ name: adminUsers.name }).from(adminUsers).where(and(eq(adminUsers.role, "owner"), eq(adminUsers.active, true)));
+  const placeholder = owners.some((o) => o.name.trim().toLowerCase() === "owner");
+  if (owners.length === 0) return { text: "There is no active owner. Make someone an owner under Staff.", href: "/admin/users" };
+  if (owners.length === 1 && placeholder) {
+    return { text: "There is only one owner, and the account is still named “Owner”. Put a real name on it under My account, then make a second owner so nobody is locked out if that account is lost.", href: "/admin/users" };
+  }
+  if (owners.length === 1) return { text: "There is only one owner. Make a second owner under Staff, so nobody is locked out if that account is lost.", href: "/admin/users" };
+  if (placeholder) return { text: "An owner account is still named “Owner”. Whoever uses it can put their real name on it under My account.", href: "/admin/users" };
+  return null;
+}
+
 // ── Own account ───────────────────────────────────────────────────────────
 
 export async function renameSelf(db: Db, userId: string, name: string): Promise<void> {
