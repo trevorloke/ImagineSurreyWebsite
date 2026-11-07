@@ -28,7 +28,7 @@ Staff sign in with email and password, or a one-time emailed link. Owners invite
 
 | Area | What it does |
 | --- | --- |
-| **Dashboard** | Active members, monthly donors, money raised this year net of refunds, subscribers, signatures, volunteers this week and orders to ship, with 12-week trends and a "needs attention" list. |
+| **Dashboard** | Active members, monthly donors, money raised this year net of refunds, subscribers, signatures, volunteers this week and orders to ship, with 12-week trends, website visits and a "needs attention" list. |
 | **Supporters** | Search and filter everyone (membership, town centre, interests, tags, source, newsletter, texts, language). Each person has a timeline, tags, notes, a read-only consent panel and referrals. Bulk-tag a filtered list, export it as CSV, and anonymize a person when they ask to be deleted (BC PIPA). **Sources** shows which links, shares and referrers bring people in. |
 | **Volunteer shifts** | A Sunday–Saturday calendar of 9–12, 1–4 and 5–8 shifts. Drag a name onto a shift and colour-code the task. Every drag also works from the keyboard and by tapping. An openings panel publishes shifts people can sign up for, with capacity and a list of who signed up. |
 | **Email and texts** | A campaign composer with audiences (newsletter, members, lapsed, donors, volunteers, signers, town centre, tag, language), merge fields, a test send and queued sending. Texts are sent only to people who agreed, and every message carries STOP. A log of everything sent. |
@@ -48,6 +48,7 @@ The campaign's database app, Starbase, gets new sign-ups from this website: peti
 - **Tick boxes are never pre-checked.** A public form can't undo someone's withdrawal: anyone can type anyone's email, so only a verified channel (the preference centre link, the signed-in portal, a text from the number itself) can re-grant consent.
 - **Newsletter sign-up is double opt-in** when email is configured. An address that unsubscribed is never re-added by a form.
 - **No public answer reveals whether an email belongs to a member, donor or signer** (political affiliation is sensitive under BC PIPA), and the public site shows no supporter counts. `/stats` redirects to the home page.
+- **Website visits are counted first-party and cookieless.** A small beacon posts each page view to `/api/v`; the site stores the path (without its query string), the referring site's hostname, the `?source`/`?ref` tag and a visitor hash: sha256 of a random salt that changes every Pacific day, the IP address and the user agent, cut short. Salts are deleted after a day, the IP address and user agent are never stored, nothing is written to the browser, and bots, `/admin`, `/me` and `/api` are skipped. Page views are kept 13 months (the daily `/api/cron/email` job deletes older ones). Four dashboard tiles show visits this week against last, the sign-up rate by source, top pages and referring sites; nothing is published.
 
 ## Local development
 
@@ -74,7 +75,7 @@ ADMIN_EMAIL=admin@example.com npm run e2e   # builds the site and runs every end
 ADMIN_EMAIL=admin@example.com npm run e2e -- portal forms   # selected suites
 ```
 
-The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unless the name ends in `_e2e` or `_test`. It starts a fake services server (Stripe, Starbase and Turnstile's check), gives each suite a clean staff table and refreshed page caches, and runs these suites: api, shifts, tracker, admin, volunteer, portal, forms, comms, content, shell and desk. The desk suite also starts a second server, with the human check on, on `E2E_PORT + 1`.
+The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unless the name ends in `_e2e` or `_test`. It starts a fake services server (Stripe, Starbase and Turnstile's check), gives each suite a clean staff table and refreshed page caches, and runs these suites: api, shifts, tracker, admin, volunteer, portal, forms, comms, content, shell, desk and visits. The desk suite also starts a second server, with the human check on, on `E2E_PORT + 1`.
 
 ## Before launch: decisions for the organization
 

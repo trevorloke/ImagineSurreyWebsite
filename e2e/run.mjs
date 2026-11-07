@@ -15,7 +15,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const dbUrl = process.env.E2E_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/imagine_surrey_e2e";
 const port = Number(process.env.E2E_PORT ?? 3100);
 const stripePort = Number(process.env.E2E_STRIPE_PORT ?? 12111);
-const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell", "desk"];
+const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell", "desk", "visits"];
 
 const env = {
   ...process.env,

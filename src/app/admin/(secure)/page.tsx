@@ -3,8 +3,10 @@ import { Sparkline } from "@/components/admin/people/Sparkline";
 import { getDb } from "@/lib/db";
 import { formatCents } from "@/lib/money";
 import { can, PERMISSIONS, requireAdmin, type Permission } from "@/lib/server/admin-auth";
-import { dashboardTotals, needsAttention, weeklyTrend } from "@/lib/server/admin-data";
+import { dashboardTotals, needsAttention, VISIT_DAYS, visitStats, weeklyTrend, type VisitStats } from "@/lib/server/admin-data";
+import { formatDay } from "@/lib/shifts";
 import "./people/people.css";
+import "./visits.css";
 
 const QUICK_LINKS: { href: string; label: string; permission?: Permission }[] = [
   { href: "/admin/people", label: "Supporters", permission: "people" },
@@ -20,7 +22,7 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
   const sp = await searchParams;
   const denied = PERMISSIONS.find((p) => p.id === sp.denied);
   const db = getDb();
-  const [totals, trend, attention] = await Promise.all([dashboardTotals(db), weeklyTrend(db), needsAttention(db)]);
+  const [totals, trend, attention, visits] = await Promise.all([dashboardTotals(db), weeklyTrend(db), needsAttention(db), visitStats(db)]);
   const money = (cents: number) => formatCents(cents);
 
   const tiles: { value: string; label: string; href?: string }[] = [
@@ -83,6 +85,8 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         <Sparkline id="trend-raised" label="Contributions" unit="Raised" points={trend.map((p) => ({ label: p.weekStart, value: p.raisedCents }))} format={money} />
       </div>
 
+      <WebsiteVisits visits={visits} />
+
       <section aria-labelledby="attention-title" style={{ marginBottom: 32 }}>
         <h2 id="attention-title" className="h3" style={{ fontSize: 22, marginBottom: 12 }}>
           Needs attention
@@ -109,5 +113,171 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         )}
       </section>
     </>
+  );
+}
+
+const count = (n: number) => n.toLocaleString("en-CA");
+
+function rate(signups: number, visitors: number): string {
+  if (visitors === 0) return "–";
+  const pct = (signups / visitors) * 100;
+  return `${pct < 10 && pct > 0 ? pct.toFixed(1) : Math.round(pct)}%`;
+}
+
+function change(now: number, before: number): string {
+  if (before === 0) return now === 0 ? "no change" : "new this week";
+  const pct = Math.round(((now - before) / before) * 100);
+  return pct === 0 ? "no change" : `${pct > 0 ? "+" : ""}${pct}% on last week`;
+}
+
+/**
+ * The first-party visit counter's four tiles. Admin only: the public site
+ * shows no numbers. A visitor is counted once a day (the hash's salt changes
+ * every day), so "visitors" over a week or a month are visitor-days.
+ */
+function WebsiteVisits({ visits }: { visits: VisitStats }) {
+  const { weekday, date } = formatDay(visits.weekStart);
+  return (
+    <section aria-labelledby="visits-title" className="visits">
+      <div className="visits__head">
+        <h2 id="visits-title" className="h3" style={{ fontSize: 22, margin: 0 }}>
+          Website visits
+        </h2>
+        <p className="small" style={{ margin: 0 }}>
+          Counted by the site itself, with no cookie and no IP address stored. A visitor counts once a day.
+        </p>
+      </div>
+      <div className="visits__grid">
+        <figure className="visit-tile" data-tile="week">
+          <figcaption className="trend__label">Visits this week</figcaption>
+          <div className="table-wrap">
+            <table className="table">
+              <caption className="visually-hidden">Visitors and page views this week (from {weekday}, {date}) and last week</caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    <span className="visually-hidden">Measure</span>
+                  </th>
+                  <th scope="col">This week</th>
+                  <th scope="col">Last week</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-row="visitors">
+                  <th scope="row">Visitors</th>
+                  <td data-col="this">{count(visits.thisWeek.visitors)}</td>
+                  <td data-col="last">{count(visits.lastWeek.visitors)}</td>
+                </tr>
+                <tr data-row="views">
+                  <th scope="row">Page views</th>
+                  <td data-col="this">{count(visits.thisWeek.views)}</td>
+                  <td data-col="last">{count(visits.lastWeek.views)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="trend__delta visit-tile__note">
+            Since {weekday}, {date}: visitors {change(visits.thisWeek.visitors, visits.lastWeek.visitors)}.
+          </p>
+        </figure>
+
+        <figure className="visit-tile" data-tile="sources">
+          <figcaption className="trend__label">Sign-up rate by source, last {VISIT_DAYS} days</figcaption>
+          <div className="table-wrap">
+            <table className="table">
+              <caption className="visually-hidden">Visitors and new supporters by source over the last {VISIT_DAYS} days</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Source</th>
+                  <th scope="col">Visitors</th>
+                  <th scope="col">Sign-ups</th>
+                  <th scope="col">Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visits.bySource.map((s) => (
+                  <tr key={s.source} data-source={s.source}>
+                    <th scope="row">{s.source}</th>
+                    <td data-col="visitors">{count(s.visitors)}</td>
+                    <td data-col="signups">{count(s.signups)}</td>
+                    <td data-col="rate">{rate(s.signups, s.visitors)}</td>
+                  </tr>
+                ))}
+                <tr data-source="(all)">
+                  <th scope="row">All visits</th>
+                  <td data-col="visitors">{count(visits.all30.visitors)}</td>
+                  <td data-col="signups">{count(visits.all30.signups)}</td>
+                  <td data-col="rate">{rate(visits.all30.signups, visits.all30.visitors)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="trend__delta visit-tile__note">
+            A source is the <code>?source=</code> tag on a shared link. Sign-ups are new supporter records with that source.
+          </p>
+        </figure>
+
+        <figure className="visit-tile" data-tile="pages">
+          <figcaption className="trend__label">Top pages, last {VISIT_DAYS} days</figcaption>
+          {visits.topPages.length === 0 ? (
+            <p className="empty-state">No page views yet.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <caption className="visually-hidden">The most viewed pages over the last {VISIT_DAYS} days</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Page</th>
+                    <th scope="col">Views</th>
+                    <th scope="col">Visitors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visits.topPages.map((p) => (
+                    <tr key={p.path} data-path={p.path}>
+                      <th scope="row" className="cell-wrap">
+                        {p.path}
+                      </th>
+                      <td data-col="views">{count(p.views)}</td>
+                      <td data-col="visitors">{count(p.visitors)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </figure>
+
+        <figure className="visit-tile" data-tile="referrers">
+          <figcaption className="trend__label">Where visitors come from, last {VISIT_DAYS} days</figcaption>
+          {visits.referrers.length === 0 ? (
+            <p className="empty-state">No visits from other sites yet.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <caption className="visually-hidden">Sites that sent visitors over the last {VISIT_DAYS} days</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Site</th>
+                    <th scope="col">Visitors</th>
+                    <th scope="col">Views</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visits.referrers.map((r) => (
+                    <tr key={r.host} data-host={r.host}>
+                      <th scope="row">{r.host}</th>
+                      <td data-col="visitors">{count(r.visitors)}</td>
+                      <td data-col="views">{count(r.views)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="trend__delta visit-tile__note">Visits typed in, from a bookmark or from an app that hides where it came from aren&apos;t listed.</p>
+        </figure>
+      </div>
+    </section>
   );
 }

@@ -18,7 +18,7 @@ We collect only what we need for the purpose you give it to us for.
 - **Newsletter subscribers:** your email address and where you signed up.
 - **Event guests and volunteers:** your name, email, the events you RSVP to, how many guests you bring, whether you checked in, and the volunteer shifts you take.
 - **Shoppers:** your name, email, shipping address and what you ordered.
-- **Website visitors:** our hosting provider and analytics service record basic technical information such as pages visited, approximate location derived from your IP address, browser type and the page that referred you. We do not use this to identify individuals.
+- **Website visitors:** we count visits ourselves, in our own database, with no cookie and no third-party script. For each page view we keep the page, the site that linked to it (just its name, such as facebook.com), the campaign tag on the link if there was one, and a code that tells one day's visitors apart. That code is made from your IP address and browser type mixed with a random value that changes every day and is deleted after a day, so it can't be traced back to you or linked across days. **We never store your IP address or browser details**, and we don't use these counts to identify anyone. Only our staff see the totals. Our hosting provider also keeps short-lived server logs, including IP addresses, to keep the site running and secure.
 
 ## Why we collect it
 
@@ -44,9 +44,9 @@ We do not sell, rent or trade personal information. We share it only with the se
 - **Resend** delivers our email.
 - **Twilio** delivers our text messages.
 - **Supabase** hosts our database and stored images.
-- **Vercel** hosts the website.
+- **Render** hosts the website.
 - **Cloudflare (Turnstile)** checks that our sign-up forms are filled in by a person and not a bot. When you use one, it sees your IP address and technical details about your browser and device. It doesn't use them for advertising, and most people never see a puzzle.
-- **Analytics** (Plausible or Google Analytics, whichever is configured) measures how the site is used.
+- **Analytics:** none. We count visits ourselves (see "Website visitors" above). If we ever add an outside analytics service, we will name it here before it is switched on.
 
 Sign-ups from this website (petitions, pledges, the newsletter, volunteer shifts and memberships) are also copied into our own organizing database, Starbase, so organizers have one record for each supporter: your name, contact details and what you signed up for. Payment details are never sent to it; our treasurer records contributions there by hand.
 
@@ -61,7 +61,8 @@ Board members and staff who need personal information to do their work have acce
 - Petition and pledge signatures: until the campaign ends and its results have been delivered, then for up to two years.
 - Newsletter and text subscriptions: until you unsubscribe. We keep a record that you unsubscribed so we do not contact you again by mistake.
 - Event and shift records: two years.
-- Website logs and analytics: as set by the provider, typically 90 days to 26 months.
+- Visit counts: 13 months, then deleted. The daily random value used to tell visitors apart is deleted after one day.
+- Our hosting provider's server logs: as set by the provider, typically a few weeks.
 
 When we no longer need information, we delete it or remove anything that identifies you.
 

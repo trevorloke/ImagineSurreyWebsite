@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { AnnouncementBar } from "@/components/shell/AnnouncementBar";
 import { StickyActions } from "@/components/shell/StickyActions";
+import { VisitBeacon } from "@/components/VisitBeacon";
 import { env } from "@/lib/env";
 import { shellSettings } from "@/lib/server/home";
 import "./globals.css";
@@ -60,6 +61,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </a>
         {/* Remembers ?ref= and ?source= for 30 days so later sign-ups are credited. */}
         <TrackingCapture />
+        {/* Counts page views for the admin dashboard: first-party, no cookie, no IP stored. */}
+        <VisitBeacon />
         {showAnnouncement && <AnnouncementBar text={announcement.text} linkLabel={announcement.linkLabel} linkHref={announcement.linkHref} />}
         <Header links={header.links} cta={{ label: header.ctaLabel, href: header.ctaHref }} />
         <main id="main" tabIndex={-1}>
