@@ -121,9 +121,9 @@ describe("Pacific calendar", () => {
 // ── Contribution limits by year ─────────────────────────────────────────────
 
 describe("the contribution year switches at midnight Pacific on January 1", () => {
-  // Midnight on January 1, 2027 in Surrey is 08:00 UTC (PST, UTC-8).
-  const lastSecond = new Date("2027-01-01T07:59:59Z");
-  const firstSecond = new Date("2027-01-01T08:00:00Z");
+  // Midnight on January 1, 2027 in Surrey is 07:00 UTC (BC's permanent UTC-7 from November 2026).
+  const lastSecond = new Date("2027-01-01T06:59:59Z");
+  const firstSecond = new Date("2027-01-01T07:00:00Z");
 
   it("counts the last second of December 31 in the old year and midnight in the new one", () => {
     expect(pacificYear(lastSecond)).toBe(2026);
@@ -151,17 +151,17 @@ describe("limitYearNeeded (the dashboard nudge)", () => {
   it("says nothing before December 1 when this year is stored", () => {
     expect(limitYearNeeded(new Date("2026-11-30T12:00:00Z"), [2026])).toBeNull();
     // 23:59 on November 30 in Surrey is still November.
-    expect(limitYearNeeded(new Date("2026-12-01T07:59:00Z"), [2026])).toBeNull();
+    expect(limitYearNeeded(new Date("2026-12-01T06:59:00Z"), [2026])).toBeNull();
   });
 
   it("asks for next year from December 1, Pacific, until it is stored", () => {
-    expect(limitYearNeeded(new Date("2026-12-01T08:00:00Z"), [2026])).toBe(2027);
+    expect(limitYearNeeded(new Date("2026-12-01T07:00:00Z"), [2026])).toBe(2027);
     expect(limitYearNeeded(new Date("2026-12-31T20:00:00Z"), [2026])).toBe(2027);
     expect(limitYearNeeded(new Date("2026-12-15T20:00:00Z"), [2026, 2027])).toBeNull();
   });
 
   it("asks for this year whenever it is missing", () => {
-    expect(limitYearNeeded(new Date("2027-01-01T08:00:00Z"), [2026])).toBe(2027);
+    expect(limitYearNeeded(new Date("2027-01-01T07:00:00Z"), [2026])).toBe(2027);
     expect(limitYearNeeded(new Date("2026-06-01T12:00:00Z"), [])).toBe(2026);
   });
 });
@@ -215,9 +215,9 @@ describe("the youth age rule (14 to 30 on the Pacific day they join)", () => {
 
   it("uses the Pacific date, not UTC: a 31st birthday starts at midnight in Surrey", () => {
     // 23:30 on November 6 in Surrey is already November 7 in UTC.
-    const lateEvening = new Date("2026-11-07T07:30:00Z");
+    const lateEvening = new Date("2026-11-07T06:30:00Z");
     expect(isYouthMember("1995-11-07", lateEvening)).toBe(true);
-    expect(isYouthMember("1995-11-07", new Date("2026-11-07T08:00:00Z"))).toBe(false);
+    expect(isYouthMember("1995-11-07", new Date("2026-11-07T07:00:00Z"))).toBe(false);
   });
 });
 

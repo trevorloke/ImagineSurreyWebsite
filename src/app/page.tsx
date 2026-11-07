@@ -11,7 +11,6 @@ import { SiteImage } from "@/components/shell/SiteImage";
 import { SmartLink } from "@/components/shell/SmartLink";
 import { StatusStamp } from "@/components/shell/StatusStamp";
 import { dayAndMonth, formatDate, timeOnly } from "@/lib/dates";
-import { env } from "@/lib/env";
 import { normalizeModules, type BuiltInKind, type HomeModule } from "@/lib/home-modules";
 import { formatCents } from "@/lib/money";
 import { NEIGHBOURHOODS } from "@/lib/neighbourhoods";
@@ -176,7 +175,7 @@ export default async function Home() {
               </div>
             </div>
             <div style={{ flex: "1 1 460px" }}>
-              <MembershipForm feeCents={env.membershipFeeCents} />
+              <MembershipForm />
             </div>
           </div>
           <div id="newsletter" className="newsletter-bar">
@@ -250,7 +249,7 @@ export default async function Home() {
             <Markdown text={donate.intro} className="lede" />
             <Markdown text={donate.text} className="body" />
           </div>
-          <DonateWidget limitCents={env.contributionLimitCents} />
+          <DonateWidget />
         </div>
       </section>
       </>

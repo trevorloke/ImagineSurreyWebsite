@@ -4,6 +4,8 @@ import { getDb } from "@/lib/db";
 import { formatCents } from "@/lib/money";
 import { can, PERMISSIONS, requireAdmin, type Permission } from "@/lib/server/admin-auth";
 import { dashboardTotals, needsAttention, VISIT_DAYS, visitStats, weeklyTrend, type VisitStats } from "@/lib/server/admin-data";
+import { limitsAttention } from "@/lib/server/limits-admin";
+import { ownersAttention } from "@/lib/server/staff";
 import { formatDay } from "@/lib/shifts";
 import "./people/people.css";
 import "./visits.css";
@@ -22,7 +24,14 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
   const sp = await searchParams;
   const denied = PERMISSIONS.find((p) => p.id === sp.denied);
   const db = getDb();
-  const [totals, trend, attention, visits] = await Promise.all([dashboardTotals(db), weeklyTrend(db), needsAttention(db), visitStats(db)]);
+  const [totals, trend, attention, visits, limitNote, ownerNote] = await Promise.all([
+    dashboardTotals(db),
+    weeklyTrend(db),
+    needsAttention(db),
+    visitStats(db),
+    limitsAttention(db),
+    ownersAttention(db),
+  ]);
   const money = (cents: number) => formatCents(cents);
 
   const tiles: { value: string; label: string; href?: string }[] = [
@@ -44,6 +53,10 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
     { n: attention.starbaseFailed, text: "sign-ups Starbase refused", href: "/admin/integrations/starbase?status=failed", link: "See why", level: "bad", permission: "integrations" },
   ];
   const open = items.filter((i) => i.n > 0);
+  // One-off reminders with no count: next year's contribution limit, and a second owner.
+  const notes: { text: string; href: string; link: string; permission: Permission }[] = [];
+  if (limitNote) notes.push({ ...limitNote, link: "Contribution limits", permission: "money" });
+  if (ownerNote) notes.push({ ...ownerNote, link: "Open Staff", permission: "users" });
 
   return (
     <>
@@ -91,7 +104,7 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         <h2 id="attention-title" className="h3" style={{ fontSize: 22, marginBottom: 12 }}>
           Needs attention
         </h2>
-        {open.length === 0 ? (
+        {open.length === 0 && notes.length === 0 ? (
           <p className="empty-state">Nothing is waiting on you right now.</p>
         ) : (
           <ul className="attention">
@@ -101,6 +114,22 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
                 <span className="attention__text">
                   {i.text}
                   {(!i.permission || can(user, i.permission)) && (
+                    <>
+                      {" "}
+                      <Link href={i.href}>{i.link}</Link>
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+            {notes.map((i) => (
+              <li key={i.text} data-level="warn">
+                <span className="attention__n" aria-hidden="true">
+                  !
+                </span>
+                <span className="attention__text">
+                  {i.text}
+                  {can(user, i.permission) && (
                     <>
                       {" "}
                       <Link href={i.href}>{i.link}</Link>
