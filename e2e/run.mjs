@@ -5,7 +5,8 @@
 //   npm run e2e -- api       # one suite
 // Environment: E2E_DATABASE_URL (a database that may be WIPED), E2E_PORT,
 // E2E_STRIPE_PORT, E2E_SKIP_BUILD=1 to reuse the last build. The desk suite
-// also starts a server on E2E_HUMAN_PORT (default E2E_PORT + 1).
+// also starts a server on E2E_HUMAN_PORT (default E2E_PORT + 1), and the mfa
+// suite one on E2E_MFA_PORT (default E2E_PORT + 2).
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -15,7 +16,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const dbUrl = process.env.E2E_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/imagine_surrey_e2e";
 const port = Number(process.env.E2E_PORT ?? 3100);
 const stripePort = Number(process.env.E2E_STRIPE_PORT ?? 12111);
-const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell", "desk"];
+const suites = process.argv.slice(2).length ? process.argv.slice(2) : ["api", "shifts", "tracker", "admin", "volunteer", "portal", "forms", "comms", "content", "shell", "desk", "mfa"];
 
 const env = {
   ...process.env,
@@ -43,6 +44,12 @@ const env = {
   NODE_ENV: "production",
   // Next.js also reads .env.local; the suites always test the real sign-in gate.
   ADMIN_PREVIEW_MODE: "",
+  // Owners and administrators must set up two-factor sign-in, which would
+  // stop every suite at the enrolment page. The site honours this switch
+  // only under this runner (E2E=1) or off production, never on Render; the
+  // mfa suite starts its own server with the requirement on.
+  E2E: "1",
+  ADMIN_MFA_REQUIRED: "0",
 };
 
 function run(cmd, args, label) {
