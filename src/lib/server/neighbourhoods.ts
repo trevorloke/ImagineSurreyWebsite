@@ -1,9 +1,9 @@
 import "server-only";
 import { and, arrayContains, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { campaignSignatures, campaigns, eventRsvps, events, memberships, people, trackerPromises } from "@/lib/db/schema";
+import { campaigns, eventRsvps, events, trackerPromises } from "@/lib/db/schema";
 import { googleCalendarUrl, icsCalendar, pacificDate, type IcsEvent } from "@/lib/ics";
-import { TOWN_CENTRE_MINIMUM, townCentreFor, type Neighbourhood } from "@/lib/neighbourhoods";
+import type { Neighbourhood } from "@/lib/neighbourhoods";
 import { spotsLeft } from "@/lib/shifts";
 import { cached, TAGS } from "./cache";
 import { queryPublicOpenings, type PublicOpening } from "./volunteer";
@@ -107,22 +107,21 @@ export function mapsUrl(address: string): string {
 // ── Neighbourhood pages ───────────────────────────────────────────────────
 
 export type NeighbourhoodPromise = { id: string; number: number; title: string; status: typeof trackerPromises.$inferSelect.status };
-export type NeighbourhoodCampaign = { slug: string; title: string; kind: "petition" | "pledge"; signatures: number };
+export type NeighbourhoodCampaign = { slug: string; title: string; kind: "petition" | "pledge" };
 
 export type NeighbourhoodPageData = {
   events: PublicEvent[];
   cityWide: PublicEvent[];
   openings: PublicOpening[];
   promises: NeighbourhoodPromise[];
+  /** Active petitions and pledges, to ask people to sign. No counts: the public site shows none. */
   campaigns: NeighbourhoodCampaign[];
-  /** Active members who live in the town centre. */
-  members: number;
 };
 
 /** Everything a town centre's page shows, in one cached read. */
-export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS.tracker, TAGS.counters], async (name: Neighbourhood, today: string): Promise<NeighbourhoodPageData> => {
+export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS.tracker, TAGS.counters, TAGS.pages], async (name: Neighbourhood, today: string): Promise<NeighbourhoodPageData> => {
   const db = getDb();
-  const [here, cityWide, openings, promises, activeCampaigns, [{ members }]] = await Promise.all([
+  const [here, cityWide, openings, promises, activeCampaigns] = await Promise.all([
     queryUpcoming(today, eq(events.neighbourhood, name), 20),
     queryUpcoming(today, isNull(events.neighbourhood), 20),
     queryPublicOpenings(db, today, name),
@@ -136,45 +135,12 @@ export const neighbourhoodPage = cached("neighbourhood-page", [TAGS.events, TAGS
       .from(campaigns)
       .where(eq(campaigns.active, true))
       .orderBy(asc(campaigns.sortOrder), asc(campaigns.title)),
-    db
-      .select({ members: sql<number>`count(distinct ${memberships.personId})::int` })
-      .from(memberships)
-      .innerJoin(people, eq(people.id, memberships.personId))
-      .where(
-        and(
-          eq(memberships.status, "active"),
-          sql`(${memberships.expiresAt} is null or ${memberships.expiresAt} > now())`,
-          sql`coalesce(${memberships.memberNeighbourhood}, ${people.neighbourhood}) = ${name}`,
-        ),
-      ),
   ]);
-  // Signers are filed under a town centre the way /stats does it: the stored
-  // town centre, else the one for their postal code; distinct addresses.
-  const fsa = sql<string | null>`upper(left(replace(${campaignSignatures.postalCode}, ' ', ''), 3))`;
-  const groups =
-    activeCampaigns.length === 0
-      ? []
-      : await db
-          .select({ campaign: campaignSignatures.campaign, neighbourhood: campaignSignatures.neighbourhood, fsa, n: sql<number>`count(distinct lower(${campaignSignatures.email}))::int` })
-          .from(campaignSignatures)
-          .where(
-            inArray(
-              campaignSignatures.campaign,
-              activeCampaigns.map((c) => c.slug),
-            ),
-          )
-          .groupBy(campaignSignatures.campaign, campaignSignatures.neighbourhood, fsa);
-  const countBySlug = new Map<string, number>();
-  for (const g of groups) if (townCentreFor(g.neighbourhood, g.fsa) === name) countBySlug.set(g.campaign, (countBySlug.get(g.campaign) ?? 0) + g.n);
   return {
     events: here,
     cityWide,
     openings,
     promises,
-    campaigns: activeCampaigns.map((c) => ({ ...c, signatures: countBySlug.get(c.slug) ?? 0 })),
-    members,
+    campaigns: activeCampaigns,
   };
 });
-
-/** Below this many, a counter would single people out; the page says "be one of the first" instead. The same threshold as /stats. */
-export const COUNTER_MINIMUM = TOWN_CENTRE_MINIMUM;

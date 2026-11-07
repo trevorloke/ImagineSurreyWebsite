@@ -197,6 +197,75 @@ export async function needsAttention(db: Db): Promise<Attention> {
   };
 }
 
+// ── Website visits ────────────────────────────────────────────────────────
+
+export type VisitWeek = { visitors: number; views: number };
+export type VisitStats = {
+  /** The Sunday that starts this week (Pacific), YYYY-MM-DD. */
+  weekStart: string;
+  thisWeek: VisitWeek;
+  lastWeek: VisitWeek;
+  /** Last 30 days, by the ?source tag the visit carried: visitors and new supporters recorded with that source. */
+  bySource: { source: string; visitors: number; signups: number }[];
+  /** Last 30 days, every visit and every new supporter, tagged or not. */
+  all30: { visitors: number; signups: number };
+  topPages: { path: string; views: number; visitors: number }[];
+  referrers: { host: string; visitors: number; views: number }[];
+};
+
+/** The window the source, page and referrer tiles cover. */
+export const VISIT_DAYS = 30;
+
+// A visitor is one visitor hash on one day: the salt changes daily, so the
+// same person on two days counts twice. Counted as distinct (day, hash).
+const VISITOR = sql`count(distinct (pv.day::text || pv.visitor_hash))::int`;
+const SINCE_DAY = sql`(${TODAY} - ${VISIT_DAYS - 1}::int)`;
+
+/**
+ * The four website-visit tiles on the dashboard. Sign-ups by source match a
+ * visit's ?source tag against people.source, which the forms record either as
+ * the tag itself, "<form>/<tag>" or "volunteer:<tag>".
+ */
+export async function visitStats(db: Db, limit = 10): Promise<VisitStats> {
+  const [[weeks], bySource, [all30], topPages, referrers] = (await Promise.all([
+    db.execute(sql`
+      select ${WEEK_START}::text as week_start,
+        count(distinct (pv.day::text || pv.visitor_hash)) filter (where pv.day >= ${WEEK_START})::int as this_visitors,
+        count(*) filter (where pv.day >= ${WEEK_START})::int as this_views,
+        count(distinct (pv.day::text || pv.visitor_hash)) filter (where pv.day < ${WEEK_START})::int as last_visitors,
+        count(*) filter (where pv.day < ${WEEK_START})::int as last_views
+      from page_views pv where pv.day >= ${WEEK_START} - 7 and pv.day < ${WEEK_START} + 7`),
+    db.execute(sql`
+      with v as (
+        select pv.source, ${VISITOR} as visitors from page_views pv
+        where pv.day >= ${SINCE_DAY} and pv.source is not null group by pv.source
+      )
+      select v.source, v.visitors,
+        (select count(*) from people p
+          where p.created_at >= (${SINCE_DAY}::timestamp at time zone ${TZ})
+            and (p.source = v.source or p.source = 'volunteer:' || v.source or right(p.source, length(v.source) + 1) = '/' || v.source))::int as signups
+      from v order by v.visitors desc, v.source limit ${limit}`),
+    db.execute(sql`
+      select (select ${VISITOR} from page_views pv where pv.day >= ${SINCE_DAY}) as visitors,
+        (select count(*) from people p where p.created_at >= (${SINCE_DAY}::timestamp at time zone ${TZ}))::int as signups`),
+    db.execute(sql`
+      select pv.path, count(*)::int as views, ${VISITOR} as visitors from page_views pv
+      where pv.day >= ${SINCE_DAY} group by pv.path order by views desc, pv.path limit ${limit}`),
+    db.execute(sql`
+      select pv.referrer_host as host, ${VISITOR} as visitors, count(*)::int as views from page_views pv
+      where pv.day >= ${SINCE_DAY} and pv.referrer_host is not null group by pv.referrer_host order by visitors desc, host limit ${limit}`),
+  ])) as unknown as [Record<string, string | number>[], Record<string, string | number>[], Record<string, number>[], Record<string, string | number>[], Record<string, string | number>[]];
+  return {
+    weekStart: String(weeks.week_start),
+    thisWeek: { visitors: Number(weeks.this_visitors), views: Number(weeks.this_views) },
+    lastWeek: { visitors: Number(weeks.last_visitors), views: Number(weeks.last_views) },
+    bySource: bySource.map((r) => ({ source: String(r.source), visitors: Number(r.visitors), signups: Number(r.signups) })),
+    all30: { visitors: Number(all30.visitors), signups: Number(all30.signups) },
+    topPages: topPages.map((r) => ({ path: String(r.path), views: Number(r.views), visitors: Number(r.visitors) })),
+    referrers: referrers.map((r) => ({ host: String(r.host), visitors: Number(r.visitors), views: Number(r.views) })),
+  };
+}
+
 // ── CSV ───────────────────────────────────────────────────────────────────
 
 export function csvCell(v: unknown): string {

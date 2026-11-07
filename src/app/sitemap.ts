@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db";
 import { campaigns, events, newsPosts, sitePages } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 
-const STATIC_ROUTES = ["/", "/tracker", "/volunteer", "/events", "/act", "/donate", "/news", "/stats", "/accessibility", "/privacy"];
+const STATIC_ROUTES = ["/", "/tracker", "/volunteer", "/events", "/act", "/donate", "/news", "/accessibility", "/privacy"];
 
 /**
  * Every public page: the fixed sections, published news, upcoming events,

@@ -255,7 +255,7 @@ const stopServer = () => {
 process.on("exit", stopServer);
 const up = await until(async () => {
   try {
-    return (await fetch(HUMAN + "/api/stats")).status < 500;
+    return (await fetch(HUMAN + "/api/promises")).status < 500;
   } catch {
     return false;
   }

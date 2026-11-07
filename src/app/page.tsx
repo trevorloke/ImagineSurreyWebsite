@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { DonateWidget } from "@/components/forms/DonateWidget";
@@ -7,13 +6,10 @@ import { NewsletterForm } from "@/components/forms/NewsletterForm";
 import { SignatureForm } from "@/components/forms/SignatureForm";
 import { PillarIcon, PlusIcon, SkyTrainMap, StopDougSign } from "@/components/Icons";
 import { RotatingWord } from "@/components/RotatingWord";
-import { AREA_COOKIE, areaSlug, localCountText, parseArea, type Area } from "@/components/shell/area";
-import { CountUp } from "@/components/shell/CountUp";
 import { Markdown } from "@/components/shell/Markdown";
 import { SiteImage } from "@/components/shell/SiteImage";
 import { SmartLink } from "@/components/shell/SmartLink";
 import { StatusStamp } from "@/components/shell/StatusStamp";
-import { YourSurrey } from "@/components/shell/YourSurrey";
 import { dayAndMonth, formatDate, timeOnly } from "@/lib/dates";
 import { env } from "@/lib/env";
 import { normalizeModules, type BuiltInKind, type HomeModule } from "@/lib/home-modules";
@@ -38,11 +34,9 @@ const isoDateLabel = (iso: string) => {
 };
 
 export default async function Home() {
-  // The area is read here, outside any cache, and passed to the loader.
-  const area = parseArea((await cookies()).get(AREA_COOKIE)?.value);
   const [settings, live, news, events, products] = await Promise.all([
     shellSettings(),
-    homeLive(area).catch((err) => {
+    homeLive().catch((err) => {
       console.error("The home page rail could not be loaded", err);
       return null;
     }),
@@ -85,7 +79,7 @@ export default async function Home() {
     // ── Act now ──
     actNow: (
       <>
-      {live && <ActNow live={live} area={area} />}
+      {live && <ActNow live={live} />}
       </>
     ),
     // ── What we stand for ──
@@ -575,8 +569,12 @@ export default async function Home() {
   );
 }
 
-/** The live rail under the hero: numbers, what's next, the tracker, and the visitor's area. */
-function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
+/**
+ * The rail under the hero: what's next and the latest from the tracker. It
+ * shows no counts: the site publishes no supporter numbers (they stay in the
+ * admin), so the rail is about the next thing to do.
+ */
+function ActNow({ live }: { live: HomeLive }) {
   const shiftSlot = live.nextShift ? SLOTS.find((s) => s.id === live.nextShift!.slot) : undefined;
   return (
     <section id="act-now" className="act-rail" aria-labelledby="act-now-title">
@@ -585,48 +583,14 @@ function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
           <h2 id="act-now-title" className="rail-title">
             Act now
           </h2>
-          <YourSurrey current={area} />
+          <Link href="/neighbourhoods" className="area-link">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" />
+              <circle cx="12" cy="9.5" r="2.5" />
+            </svg>
+            What&apos;s on near you
+          </Link>
         </div>
-
-        {live.local && (
-          <div className="local-block" data-area={live.local.area}>
-            <div className="stack" style={{ gap: 4 }}>
-              <p className="eyebrow">Your Surrey</p>
-              <h3 className="local-name">{live.local.area}</h3>
-            </div>
-            <ul className="local-counts">
-              <li>{localCountText(live.local.counts.pledge, live.local.area, "sign the pledge")}</li>
-              <li>{localCountText(live.local.counts.petition, live.local.area, "sign the SkyTrain petition")}</li>
-            </ul>
-            <Link href={`/neighbourhoods/${areaSlug(live.local.area)}`} className="btn btn--outline">
-              What&apos;s on in {live.local.area}
-            </Link>
-          </div>
-        )}
-
-        <ul className="rail-stats" role="list">
-          <li className="rail-stat" data-stat="members">
-            <CountUp value={live.members} className="rail-number" />
-            <span className="rail-label">members organizing</span>
-            <a href="#join" className="text-link rail-link">
-              Join them
-            </a>
-          </li>
-          <li className="rail-stat" data-stat="pledge">
-            <CountUp value={live.pledgeSigners} className="rail-number" />
-            <span className="rail-label">signed the pledge to stop McCallum&apos;s chaos</span>
-            <a href="#pledge" className="text-link rail-link">
-              Sign the pledge
-            </a>
-          </li>
-          <li className="rail-stat" data-stat="petition">
-            <CountUp value={live.petitionSigners} className="rail-number" />
-            <span className="rail-label">want SkyTrain to South Surrey</span>
-            <a href="#skytrain" className="text-link rail-link">
-              Sign the petition
-            </a>
-          </li>
-        </ul>
 
         <div className="rail-grid">
           <div className="stack" style={{ gap: 14 }}>

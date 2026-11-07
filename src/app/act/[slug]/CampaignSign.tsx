@@ -1,64 +1,25 @@
-"use client";
-
-import { useState, type ReactNode } from "react";
-import { SignatureForm, type SignatureResult } from "@/components/forms/SignatureForm";
+import type { ReactNode } from "react";
+import { SignatureForm } from "@/components/forms/SignatureForm";
 import type { ShareLinks } from "@/lib/share";
 import { SHARE_CHANNELS } from "../links";
-import { Milestone } from "../Milestone";
-import { formatCount, nextMilestone } from "../milestone";
 
 export type CampaignSummary = {
   slug: string;
   title: string;
   kind: "petition" | "pledge";
   question: string | null;
-  goal: number | null;
-};
-
-export type CountsSummary = {
-  count: number;
-  byNeighbourhood: { neighbourhood: string; count: number }[];
-  latestNeighbourhoods: string[];
 };
 
 /**
- * The live half of a campaign page: the milestone bar, the per-town-centre
- * counts and the form share one count, so signing moves the bar at once.
- * `children` is the server-rendered body and statement.
+ * A campaign page's body and share row beside the signature form. It shows no
+ * signature count: the public site publishes no supporter numbers (they stay
+ * in the admin). `children` is the server-rendered body and statement.
  */
-export function CampaignSign({ campaign, counts, share, children }: { campaign: CampaignSummary; counts: CountsSummary; share: ShareLinks; children: ReactNode }) {
-  const [count, setCount] = useState(counts.count);
-  const latest = counts.latestNeighbourhoods;
-  const milestone = nextMilestone(count, campaign.goal);
-  const noun = campaign.kind === "pledge" ? "pledges" : "signatures";
-
-  const onSigned = (result: SignatureResult) => setCount(result.count);
-
+export function CampaignSign({ campaign, share, children }: { campaign: CampaignSummary; share: ShareLinks; children: ReactNode }) {
   return (
     <div className="split act-split">
       <div className="stack act-main" style={{ gap: 28 }}>
         {children}
-        <Milestone count={count} milestone={milestone} label={campaign.kind === "pledge" ? "Pledges" : "Signatures"} noun={noun} />
-        {counts.byNeighbourhood.length > 0 && (
-          <div className="stack" style={{ gap: 10 }}>
-            <h2 className="h3" style={{ fontSize: 22 }}>
-              By town centre
-            </h2>
-            <dl className="hood-list">
-              {counts.byNeighbourhood.map((n) => (
-                <div key={n.neighbourhood} className="hood-row">
-                  <dt>{n.neighbourhood}</dt>
-                  <dd>{formatCount(n.count)}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        )}
-        {latest.length > 0 && (
-          <p className="act-latest">
-            <strong>Latest from:</strong> {latest.join(", ")}
-          </p>
-        )}
         <div className="stack" style={{ gap: 10 }}>
           <h2 className="h3" style={{ fontSize: 22 }}>
             Share this {campaign.kind}
@@ -73,7 +34,7 @@ export function CampaignSign({ campaign, counts, share, children }: { campaign: 
         </div>
       </div>
       <div className="act-form" style={{ flex: "1 1 400px" }}>
-        <SignatureForm campaign={campaign.slug} kind={campaign.kind} question={campaign.question} onSigned={onSigned} idPrefix="act" />
+        <SignatureForm campaign={campaign.slug} kind={campaign.kind} question={campaign.question} idPrefix="act" />
       </div>
     </div>
   );

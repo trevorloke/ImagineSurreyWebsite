@@ -10,7 +10,6 @@ const TAKE_PART = [
   { href: "/tracker", label: "Promise tracker" },
   { href: "/volunteer", label: "Volunteer" },
   { href: "/act", label: "Petitions" },
-  { href: "/stats", label: "Numbers" },
   { href: "/me", label: "Supporter sign-in" },
   { href: "/preferences", label: "Email preferences" },
 ];

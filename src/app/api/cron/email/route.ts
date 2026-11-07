@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { error, json } from "@/lib/server/api";
 import { drainQueue, pruneEmailBodies } from "@/lib/server/email";
 import { deliverOutbox } from "@/lib/server/starbase-outbox";
+import { pruneVisits } from "@/lib/server/visits";
 
 // Sends anything still queued (campaigns normally drain right after "Send"),
 // then anything still waiting for Starbase (sign-ups normally go right after
@@ -25,5 +26,10 @@ export async function GET(req: NextRequest) {
   if (Math.random() < 0.02) await pruneEmailBodies(db);
   // The time the email left, within the 60 seconds; deliverOutbox never throws.
   const starbase = await deliverOutbox(db, Math.max(5_000, 45_000 - (Date.now() - started)));
-  return json({ ok: true, ...result, starbase });
+  // Page views are kept for 13 months; old visitor salts go after a day.
+  const visits = await pruneVisits(db).catch((err) => {
+    console.error("Old page views could not be deleted", err);
+    return { deleted: 0, error: true };
+  });
+  return json({ ok: true, ...result, starbase, visits });
 }

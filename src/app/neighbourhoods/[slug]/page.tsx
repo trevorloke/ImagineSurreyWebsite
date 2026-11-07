@@ -8,7 +8,7 @@ import { PageHead } from "@/components/PageHead";
 import { ShareButtons } from "@/components/ShareButtons";
 import { env } from "@/lib/env";
 import { NEIGHBOURHOOD_SLUGS, neighbourhoodFromSlug, neighbourhoodSlug } from "@/lib/neighbourhoods";
-import { COUNTER_MINIMUM, neighbourhoodPage } from "@/lib/server/neighbourhoods";
+import { neighbourhoodPage } from "@/lib/server/neighbourhoods";
 import { getSettings } from "@/lib/server/settings";
 import { shareLinks } from "@/lib/share";
 import { formatLongDate, SLOT_BY_ID, todayInSurrey } from "@/lib/shifts";
@@ -61,39 +61,19 @@ export default async function NeighbourhoodPage({ params }: PageProps<"/neighbou
               Volunteer near you
             </Link>
           </div>
-          <ul className="counters" aria-label={`${name} by the numbers`}>
-            <li className="counter">
-              {data.members >= COUNTER_MINIMUM ? (
-                <>
-                  <span className="counter-value">{data.members}</span>
-                  <span className="counter-label">members in {name}</span>
-                </>
-              ) : (
-                <>
-                  <span className="counter-first">Be one of the first</span>
-                  <span className="counter-label">members in {name}</span>
-                </>
-              )}
+          <ul className="hood-asks" aria-label={`Ways to help in ${name}`}>
+            <li className="hood-ask">
+              <span className="hood-ask-title">Become a member in {name}</span>
+              <span className="hood-ask-label">Join your neighbours in Imagine Surrey.</span>
               <Link href={joinHref}>Become a member</Link>
             </li>
             {data.campaigns.map((c) => (
-              <li key={c.slug} className="counter">
-                {c.signatures >= COUNTER_MINIMUM ? (
-                  <>
-                    <span className="counter-value">{c.signatures}</span>
-                    <span className="counter-label">
-                      {name} residents signed the {c.kind}: {c.title}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="counter-first">Be one of the first</span>
-                    <span className="counter-label">
-                      in {name} to sign the {c.kind}: {c.title}
-                    </span>
-                  </>
-                )}
-                <Link href={campaignHref(c.slug)}>Add your name</Link>
+              <li key={c.slug} className="hood-ask">
+                <span className="hood-ask-title">{c.title}</span>
+                <span className="hood-ask-label">Add your name to the {c.kind}.</span>
+                <Link href={campaignHref(c.slug)}>
+                  Add your name<span className="visually-hidden">: {c.title}</span>
+                </Link>
               </li>
             ))}
           </ul>

@@ -1,24 +1,11 @@
-// The site shell: the home page's live rail and "Your Surrey" chip, the
-// header, skip link and mobile menu, SEO files, the accessibility statement,
-// news pages, phone widths and structural accessibility checks.
-import { readdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
+// The site shell: the home page's "Act now" rail (with no public counts), the
+// header, skip link and mobile menu, SEO files, the retired /stats page, the
+// accessibility statement, news pages, phone widths and structural
+// accessibility checks.
 import { chromium } from "playwright";
-import { BASE, finish, ok, sql } from "./helpers.mjs";
+import { adminCookie, BASE, finish, ok, sql } from "./helpers.mjs";
 
-// .next/cache outlives builds, so rail entries cached by a local server
-// against another database could be served here. Drop them first; the
-// running server only holds in memory what it has served since it started.
-const fetchCache = path.resolve(import.meta.dirname, "../.next/cache/fetch-cache");
-for (const file of await readdir(fetchCache).catch(() => [])) {
-  const body = await readFile(path.join(fetchCache, file), "utf8").catch(() => "");
-  if (body.includes("byNeighbourhood")) await rm(path.join(fetchCache, file), { force: true });
-}
-
-// ── Seed by SQL, before this suite's first visit to the home page ──────────
-// The rail is cached for five minutes per area. The runner's start-up probe
-// has already filled the entry for visitors with no area, so the rail is
-// checked with an area cookie no one has used yet (Whalley).
+// ── Seed by SQL, then refresh the cached public pages ──────────────────────
 const people = [];
 for (let i = 1; i <= 14; i++) {
   const email = `shell-${i}@example.com`;
@@ -26,15 +13,11 @@ for (let i = 1; i <= 14; i++) {
     on conflict (email) do update set first_name = excluded.first_name returning id, email`;
   people.push(p);
 }
-// 10 active members, one pending, one expired.
+// Members and signers exist, so a count would have something to show if one were still published.
 for (const p of people.slice(0, 10)) await sql`insert into memberships (person_id, status, fee_cents, voting_eligible, starts_at) values (${p.id}, 'active', 1000, true, now())`;
-await sql`insert into memberships (person_id, status, fee_cents, voting_eligible) values (${people[10].id}, 'pending_payment', 1000, true)`;
-await sql`insert into memberships (person_id, status, fee_cents, voting_eligible, starts_at, expires_at) values (${people[11].id}, 'active', 1000, true, now() - interval '400 days', now() - interval '35 days')`;
-// 11 pledge signers in Whalley (V3T), 2 in Newton (V3W); 4 petition signers in Whalley.
 const sign = (campaign, p, postal) =>
   sql`insert into campaign_signatures (campaign, person_id, first_name, last_name, email, postal_code) values (${campaign}, ${p.id}, 'Shell', 'Tester', ${p.email}, ${postal}) on conflict do nothing`;
 for (const p of people.slice(0, 11)) await sign("stop-mccallum-pledge", p, "V3T 1A1");
-for (const p of people.slice(11, 13)) await sign("stop-mccallum-pledge", p, "V3W 1A1");
 for (const p of people.slice(0, 4)) await sign("skytrain-south-surrey", p, "V3T 2B2");
 await sql`insert into events (slug, title, starts_at, location, summary) values ('shell-rail-meetup', 'Shell rail meetup', now() + interval '2 days', 'Whalley Library', 'Come say hi.') on conflict do nothing`;
 await sql`insert into events (slug, title, starts_at, location, summary, published) values ('shell-hidden-event', 'Shell hidden event', now() + interval '1 day', 'Nowhere', 'Draft.', false) on conflict do nothing`;
@@ -44,26 +27,29 @@ const [promise7] = await sql`select title from tracker_promises where number = 7
 await sql`insert into news_posts (slug, title, summary, body, published_at) values ('shell-news-post', 'Shell news post with a long headline about neighbourhoods', 'A summary for sharing.', 'Body with **bold** text.
 
 A second paragraph.', now()) on conflict do nothing`;
+// The home page is cached; the rows above went in behind the site's back.
+ok((await fetch(BASE + "/api/admin/revalidate", { method: "POST", headers: { cookie: await adminCookie() } })).ok, "cached public pages refreshed after seeding");
+await sql`delete from admin_users`;
 
 const [{ members }] = await sql`select count(distinct person_id)::int as members from memberships where status = 'active' and (expires_at is null or expires_at > now())`;
 const [{ pledge }] = await sql`select count(distinct lower(email))::int as pledge from campaign_signatures where campaign = 'stop-mccallum-pledge'`;
-const [{ petition }] = await sql`select count(distinct lower(email))::int as petition from campaign_signatures where campaign = 'skytrain-south-surrey'`;
 
 const browser = await chromium.launch();
 
-// ── The rail matches the database ──────────────────────────────────────────
+// ── The rail: what's next, and no counts ───────────────────────────────────
 {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
-  await ctx.addCookies([{ name: "is_area", value: "Whalley", url: BASE }]);
   const page = await ctx.newPage();
   const res = await page.goto(BASE + "/");
   ok(res.status() === 200, "home page renders");
-  const stat = async (name) => Number(await page.locator(`[data-stat="${name}"] .countup`).getAttribute("data-value"));
-  const shown = async (name) => (await page.locator(`[data-stat="${name}"] .countup [aria-hidden="true"]`).textContent()).replace(/,/g, "");
-  ok((await stat("members")) === members && members >= 10, `members on the rail = active memberships in SQL (${members})`);
-  ok((await stat("pledge")) === pledge, `pledge signers on the rail = SQL (${pledge})`);
-  ok((await stat("petition")) === petition, `petition signers on the rail = SQL (${petition})`);
-  ok(Number(await shown("members")) === members, "with reduced motion the number shows its final value at once");
+  const rail = page.locator("#act-now");
+  ok((await rail.count()) === 1, "the Act now rail is on the home page");
+  ok((await page.locator(".rail-stats, .rail-stat, .countup, [data-stat]").count()) === 0, "the rail has no live numbers");
+  const railText = await rail.textContent();
+  ok(!railText.includes("members organizing") && !railText.includes("signed the pledge to stop") && !railText.includes("want SkyTrain to South Surrey"), "the rail's count labels are gone");
+  ok(members >= 10 && pledge >= 11, `members (${members}) and pledge signers (${pledge}) are on file, so a published count would have had something to show`);
+  ok((await page.locator(".area-chip, .local-block, .your-surrey").count()) === 0, "the 'Your area' chip and local counts are gone");
+  ok((await rail.locator('a[href="/neighbourhoods"]').count()) === 1, "the rail links to the neighbourhood pages instead");
   // Other suites may have added sooner events; the rail shows the next two published ones.
   const nextTwo = (await sql`select slug from events where published and starts_at >= now() order by starts_at limit 2`).map((e) => e.slug);
   ok(nextTwo.length > 0 && (await Promise.all(nextTwo.map(async (slug) => (await page.locator(`#act-now a[href="/events/${slug}"]`).count()) === 1))).every(Boolean), `Next up links to the next upcoming events (${nextTwo.join(", ")})`);
@@ -75,19 +61,22 @@ const browser = await chromium.launch();
   const strip = page.locator(".tracker-strip li").first();
   ok((await strip.textContent()).includes(promise7.title) && (await strip.locator(".status-stamp svg").count()) === 1, "latest tracker update is listed with an icon status stamp");
   ok((await strip.locator(".status-stamp").textContent()).trim() === "Broken", "the stamp names the status in words");
-  const local = page.locator(".local-block");
-  ok((await local.getAttribute("data-area")) === "Whalley", "the area cookie shows the Whalley block");
-  const localText = await local.textContent();
-  ok(localText.includes("11 people in Whalley have signed the pledge"), "local pledge count is published at 10 or more");
-  ok(localText.includes("Be one of the first in Whalley to sign the SkyTrain petition"), "local petition count under 10 is not published");
-  ok((await local.locator('a[href="/neighbourhoods/whalley"]').count()) === 1, "the block links to the neighbourhood page");
   // Every existing anchor is still on the page.
   for (const id of ["top", "stand", "news", "join", "newsletter", "stop", "pledge", "donate", "skytrain", "organize", "about", "committees", "events", "shop", "social", "act-now", "volunteer"])
     ok((await page.locator(`[id="${id}"]`).count()) === 1, `#${id} exists`);
   const ld = JSON.parse(await page.locator('script[type="application/ld+json"]').first().textContent());
   ok(ld["@type"] === "Organization" && ld.sameAs.length > 0 && ld.url === BASE, "JSON-LD Organization with sameAs");
   ok((await page.locator('meta[property="og:image"]').getAttribute("content")).includes("/opengraph-image"), "pages share the generated card");
+  ok((await ctx.cookies()).every((c) => c.name !== "is_area"), "the home page sets no area cookie");
   await ctx.close();
+}
+
+// ── /stats is retired ──────────────────────────────────────────────────────
+{
+  const r = await fetch(BASE + "/stats", { redirect: "manual" });
+  ok((r.status === 301 || r.status === 308) && new URL(r.headers.get("location"), BASE).pathname === "/", `/stats redirects permanently to the home page (${r.status} → ${r.headers.get("location")})`);
+  ok((await fetch(BASE + "/api/stats")).status === 404, "/api/stats is gone");
+  ok((await fetch(BASE + "/api/campaigns/skytrain-south-surrey/count")).status === 404, "the public campaign count endpoint is gone");
 }
 
 // ── Skip link, header and menu ─────────────────────────────────────────────
@@ -134,33 +123,6 @@ const browser = await chromium.launch();
   await mobile.close();
 }
 
-// ── Your Surrey chip ───────────────────────────────────────────────────────
-{
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const page = await ctx.newPage();
-  await page.goto(BASE + "/");
-  ok((await page.locator(".local-block").count()) === 0, "no local block before an area is chosen");
-  const chip = page.locator(".area-chip");
-  await chip.click();
-  ok((await chip.getAttribute("aria-expanded")) === "true", "the chip opens the postal code box");
-  const input = page.getByLabel("Your postal code", { exact: true });
-  await input.fill("V6B 1A1");
-  await input.press("Enter");
-  ok((await page.locator('.area-form [role="alert"]').textContent()).includes("outside Surrey"), "a postal code outside Surrey gets an inline message");
-  ok((await input.getAttribute("aria-invalid")) === "true", "the field is marked invalid");
-  await input.fill("V3W 1A1");
-  await page.getByRole("button", { name: "Show my area" }).click();
-  await page.locator('.local-block[data-area="Newton"]').waitFor({ timeout: 10_000 });
-  const cookie = (await ctx.cookies()).find((c) => c.name === "is_area");
-  ok(cookie?.value === "Newton" && cookie.path === "/" && cookie.sameSite === "Lax", "V3W 1A1 sets is_area=Newton (path /, SameSite Lax)");
-  ok(cookie && cookie.expires * 1000 - Date.now() > 29 * 86400_000, "the area cookie lasts 30 days");
-  ok((await page.evaluate(() => localStorage.getItem("is_area"))) === "Newton", "the area is kept in localStorage too");
-  ok((await page.locator(".local-block").textContent()).includes("Newton"), "the local block names Newton");
-  const newton = await page.locator(".local-block").textContent();
-  ok(newton.includes("Be one of the first in Newton to sign the pledge"), `fewer than 10 local signers are not counted out loud (${newton})`);
-  await ctx.close();
-}
-
 // ── Rotating words can be paused ───────────────────────────────────────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -199,6 +161,7 @@ const browser = await chromium.launch();
   ok(sitemap.includes(`<loc>${BASE}/act/skytrain-south-surrey</loc>`), "sitemap lists /act/skytrain-south-surrey");
   ok(sitemap.includes(`<loc>${BASE}/news/shell-news-post</loc>`) && sitemap.includes(`<loc>${BASE}/events/shell-rail-meetup</loc>`), "sitemap lists published news and upcoming events");
   ok(!sitemap.includes("shell-hidden-event"), "sitemap leaves out unpublished events");
+  ok(!sitemap.includes("/stats"), "sitemap leaves out the retired /stats page");
 
   const robots = await (await fetch(BASE + "/robots.txt")).text();
   ok(/Disallow: \/admin\b/.test(robots) && /Disallow: \/api\b/.test(robots) && robots.includes(`Sitemap: ${BASE}/sitemap.xml`), "robots.txt disallows /admin and /api and names the sitemap");
@@ -272,7 +235,8 @@ const browser = await chromium.launch();
   await page.goto(BASE + "/accessibility");
   ok((await page.locator("main").textContent()).includes("WCAG") && (await page.locator('main a[href^="mailto:"]').count()) >= 1, "the accessibility statement names WCAG and how to report a problem");
   ok((await page.locator('footer a[href="/accessibility"]').count()) === 1 && (await page.locator('footer a[href="/privacy"]').count()) === 1, "the footer links to accessibility and privacy");
-  for (const href of ["/act", "/stats", "/me", "/preferences", "/volunteer"]) ok((await page.locator(`footer a[href="${href}"]`).count()) === 1, `the footer links to ${href}`);
+  for (const href of ["/act", "/me", "/preferences", "/volunteer"]) ok((await page.locator(`footer a[href="${href}"]`).count()) === 1, `the footer links to ${href}`);
+  ok((await page.locator('footer a[href="/stats"]').count()) === 0, "the footer no longer links to /stats");
   await page.close();
 }
 
