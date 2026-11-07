@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getAdminUser } from "@/lib/server/admin-auth";
+import { getAdminAccount } from "@/lib/server/admin-auth";
 
 export const metadata: Metadata = { title: "Admin sign in", robots: { index: false } };
 
@@ -8,6 +8,7 @@ const MESSAGES: Record<string, { tone: "error" | "note"; text: string }> = {
   invalid: { tone: "error", text: "That email and password don't match." },
   locked: { tone: "error", text: "Too many attempts. Try again in 15 minutes, or use an email link." },
   link: { tone: "error", text: "That sign-in link has expired or was already used. Ask for a new one." },
+  expired: { tone: "error", text: "The code step timed out or was already used. Sign in again." },
   "email-not-configured": { tone: "error", text: "Email sending isn't set up yet, so sign-in links can't be sent. Use your password." },
   sent: { tone: "note", text: "If that address belongs to a staff account, a sign-in link is on its way. It works once and expires in 20 minutes." },
   signedout: { tone: "note", text: "You're signed out." },
@@ -28,7 +29,8 @@ function setupProblems(): string[] {
 }
 
 export default async function AdminLogin({ searchParams }: PageProps<"/admin/login">) {
-  if (await getAdminUser()) redirect("/admin");
+  // Signed in already (including someone who still has to set up two-factor sign-in).
+  if (await getAdminAccount()) redirect("/admin");
   const sp = await searchParams;
   const message = MESSAGES[typeof sp.error === "string" ? sp.error : typeof sp.sent === "string" ? "sent" : typeof sp.signedout === "string" ? "signedout" : ""];
   const next = typeof sp.next === "string" && /^\/admin(\/|$)/.test(sp.next) ? sp.next : "/admin";

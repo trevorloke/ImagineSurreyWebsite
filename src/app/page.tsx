@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { DonateWidget } from "@/components/forms/DonateWidget";
 import { MembershipForm } from "@/components/forms/MembershipForm";
@@ -6,15 +6,12 @@ import { NewsletterForm } from "@/components/forms/NewsletterForm";
 import { SignatureForm } from "@/components/forms/SignatureForm";
 import { PillarIcon, PlusIcon, SkyTrainMap, StopDougSign } from "@/components/Icons";
 import { RotatingWord } from "@/components/RotatingWord";
-import { AREA_COOKIE, areaSlug, localCountText, parseArea, type Area } from "@/components/shell/area";
-import { CountUp } from "@/components/shell/CountUp";
 import { Markdown } from "@/components/shell/Markdown";
 import { SiteImage } from "@/components/shell/SiteImage";
 import { SmartLink } from "@/components/shell/SmartLink";
 import { StatusStamp } from "@/components/shell/StatusStamp";
-import { YourSurrey } from "@/components/shell/YourSurrey";
 import { dayAndMonth, formatDate, timeOnly } from "@/lib/dates";
-import { env } from "@/lib/env";
+import { normalizeModules, type BuiltInKind, type HomeModule } from "@/lib/home-modules";
 import { formatCents } from "@/lib/money";
 import { NEIGHBOURHOODS } from "@/lib/neighbourhoods";
 import { activeProducts, latestNews, upcomingEvents } from "@/lib/server/content";
@@ -36,11 +33,9 @@ const isoDateLabel = (iso: string) => {
 };
 
 export default async function Home() {
-  // The area is read here, outside any cache, and passed to the loader.
-  const area = parseArea((await cookies()).get(AREA_COOKIE)?.value);
   const [settings, live, news, events, products] = await Promise.all([
     shellSettings(),
-    homeLive(area).catch((err) => {
+    homeLive().catch((err) => {
       console.error("The home page rail could not be loaded", err);
       return null;
     }),
@@ -51,9 +46,12 @@ export default async function Home() {
   const { org, hero, pillars, membership, stop, donate, skytrain, organize, board, committees, socials } = settings;
   const [nextEvent, ...moreEvents] = events;
 
-  return (
-    <>
-      {/* ── Hero ── */}
+  // Each built-in module, ready to place; Admin → Home page decides which
+  // show and in what order (settings.homeModules).
+  const blocks: Record<BuiltInKind, ReactNode> = {
+    // ── Hero ──
+    hero: (
+      <>
       <section id="top" className="section section--navy hero">
         <div className="container hero-inner">
           <div className="hero-copy">
@@ -75,11 +73,17 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Act now ── */}
-      {live && <ActNow live={live} area={area} />}
-
-      {/* ── What we stand for ── */}
+      </>
+    ),
+    // ── Act now ──
+    actNow: (
+      <>
+      {live && <ActNow live={live} />}
+      </>
+    ),
+    // ── What we stand for ──
+    pillars: (
+      <>
       <section id="stand" className="section">
         <div className="container stack" style={{ gap: 40 }}>
           <div className="intro">
@@ -113,8 +117,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── News ── */}
+      </>
+    ),
+    // ── News ──
+    news: (
+      <>
       <section id="news" className="section" style={{ paddingTop: 0 }}>
         <div className="container stack" style={{ gap: 32, paddingTop: 72, borderTop: "1px solid var(--line)" }}>
           <div className="section-head">
@@ -141,8 +148,11 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Become a member ── */}
+      </>
+    ),
+    // ── Become a member ──
+    join: (
+      <>
       <section id="join" className="section section--surface">
         <div className="container stack" style={{ gap: 48 }}>
           {membership.photo.url && (
@@ -165,7 +175,7 @@ export default async function Home() {
               </div>
             </div>
             <div style={{ flex: "1 1 460px" }}>
-              <MembershipForm feeCents={env.membershipFeeCents} />
+              <MembershipForm />
             </div>
           </div>
           <div id="newsletter" className="newsletter-bar">
@@ -177,8 +187,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Stop McCallum's chaos ── */}
+      </>
+    ),
+    // ── Stop McCallum's chaos ──
+    pledge: (
+      <>
       <section id="stop" className="section section--navy on-dark">
         <div className="container stack" style={{ gap: 40 }}>
           <div className="stop-head">
@@ -224,8 +237,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Chip in ── */}
+      </>
+    ),
+    // ── Chip in ──
+    donate: (
+      <>
       <section id="donate" className="section">
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 320px", gap: 16 }}>
@@ -233,11 +249,14 @@ export default async function Home() {
             <Markdown text={donate.intro} className="lede" />
             <Markdown text={donate.text} className="body" />
           </div>
-          <DonateWidget limitCents={env.contributionLimitCents} />
+          <DonateWidget />
         </div>
       </section>
-
-      {/* ── SkyTrain ── */}
+      </>
+    ),
+    // ── SkyTrain ──
+    skytrain: (
+      <>
       <section id="skytrain" className="section--navy-dark skytrain on-dark">
         <div className="skytrain-hero" style={skytrain.image.url ? { backgroundImage: `url(${JSON.stringify(skytrain.image.url)})` } : undefined}>
           <div className="container">
@@ -293,8 +312,11 @@ export default async function Home() {
           </div>
         )}
       </section>
-
-      {/* ── Organize ── */}
+      </>
+    ),
+    // ── Organize ──
+    organize: (
+      <>
       <section id="organize" className="section section--yellow organize">
         <div className="container" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "32px 48px" }}>
           <h2 className="display pop">
@@ -305,8 +327,11 @@ export default async function Home() {
           </SmartLink>
         </div>
       </section>
-
-      {/* ── Board ── */}
+      </>
+    ),
+    // ── Board ──
+    board: (
+      <>
       <section id="about" className="section section--surface">
         <div className="container stack" style={{ gap: 36 }}>
           <div className="intro" style={{ maxWidth: 720 }}>
@@ -346,8 +371,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Committees ── */}
+      </>
+    ),
+    // ── Committees ──
+    committees: (
+      <>
       <section id="committees" className="section">
         <div className="container stack" style={{ gap: 44 }}>
           <div className="intro" style={{ maxWidth: 720 }}>
@@ -396,8 +424,11 @@ export default async function Home() {
           </a>
         </div>
       </section>
-
-      {/* ── Events ── */}
+      </>
+    ),
+    // ── Events ──
+    events: (
+      <>
       <section id="events" className="section section--red on-dark">
         <div className="container stack" style={{ gap: 28 }}>
           <div className="section-head">
@@ -464,8 +495,11 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Shop ── */}
+      </>
+    ),
+    // ── Shop ──
+    shop: (
+      <>
       <section id="shop" className="section section--surface">
         <div className="container stack" style={{ gap: 32 }}>
           <div className="section-head">
@@ -492,8 +526,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Social ── */}
+      </>
+    ),
+    // ── Social ──
+    social: (
+      <>
       {socials.accounts.length > 0 && (
         <section id="social" className="section">
           <div className="container stack" style={{ gap: 32 }}>
@@ -517,12 +554,26 @@ export default async function Home() {
           </div>
         </section>
       )}
+      </>
+    ),
+  };
+  const modules = normalizeModules(settings.homeModules.modules).filter((m) => m.enabled);
+
+  return (
+    <>
+      {modules.map((m, i) =>
+        m.kind === "custom" ? <CustomModule key={`custom-${i}`} module={m} index={i} /> : <Fragment key={m.kind}>{blocks[m.kind]}</Fragment>,
+      )}
     </>
   );
 }
 
-/** The live rail under the hero: numbers, what's next, the tracker, and the visitor's area. */
-function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
+/**
+ * The rail under the hero: what's next and the latest from the tracker. It
+ * shows no counts: the site publishes no supporter numbers (they stay in the
+ * admin), so the rail is about the next thing to do.
+ */
+function ActNow({ live }: { live: HomeLive }) {
   const shiftSlot = live.nextShift ? SLOTS.find((s) => s.id === live.nextShift!.slot) : undefined;
   return (
     <section id="act-now" className="act-rail" aria-labelledby="act-now-title">
@@ -531,48 +582,14 @@ function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
           <h2 id="act-now-title" className="rail-title">
             Act now
           </h2>
-          <YourSurrey current={area} />
+          <Link href="/neighbourhoods" className="area-link">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" />
+              <circle cx="12" cy="9.5" r="2.5" />
+            </svg>
+            What&apos;s on near you
+          </Link>
         </div>
-
-        {live.local && (
-          <div className="local-block" data-area={live.local.area}>
-            <div className="stack" style={{ gap: 4 }}>
-              <p className="eyebrow">Your Surrey</p>
-              <h3 className="local-name">{live.local.area}</h3>
-            </div>
-            <ul className="local-counts">
-              <li>{localCountText(live.local.counts.pledge, live.local.area, "sign the pledge")}</li>
-              <li>{localCountText(live.local.counts.petition, live.local.area, "sign the SkyTrain petition")}</li>
-            </ul>
-            <Link href={`/neighbourhoods/${areaSlug(live.local.area)}`} className="btn btn--outline">
-              What&apos;s on in {live.local.area}
-            </Link>
-          </div>
-        )}
-
-        <ul className="rail-stats" role="list">
-          <li className="rail-stat" data-stat="members">
-            <CountUp value={live.members} className="rail-number" />
-            <span className="rail-label">members organizing</span>
-            <a href="#join" className="text-link rail-link">
-              Join them
-            </a>
-          </li>
-          <li className="rail-stat" data-stat="pledge">
-            <CountUp value={live.pledgeSigners} className="rail-number" />
-            <span className="rail-label">signed the pledge to stop McCallum&apos;s chaos</span>
-            <a href="#pledge" className="text-link rail-link">
-              Sign the pledge
-            </a>
-          </li>
-          <li className="rail-stat" data-stat="petition">
-            <CountUp value={live.petitionSigners} className="rail-number" />
-            <span className="rail-label">want SkyTrain to South Surrey</span>
-            <a href="#skytrain" className="text-link rail-link">
-              Sign the petition
-            </a>
-          </li>
-        </ul>
 
         <div className="rail-grid">
           <div className="stack" style={{ gap: 14 }}>
@@ -663,6 +680,38 @@ function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
             </Link>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+const TONE_CLASS: Record<HomeModule["tone"], string> = {
+  white: "section",
+  grey: "section section--surface",
+  navy: "section section--navy on-dark",
+  yellow: "section section--yellow",
+};
+
+/** A text block an organizer added in Admin → Home page. */
+function CustomModule({ module: m, index }: { module: HomeModule; index: number }) {
+  if (!m.heading && !m.body && !m.buttonLabel) return null;
+  const headingId = `module-${index}-title`;
+  return (
+    <section className={`${TONE_CLASS[m.tone]} custom-module`} aria-labelledby={m.heading ? headingId : undefined}>
+      <div className="container stack" style={{ gap: 20, maxWidth: 820 }}>
+        {m.heading && (
+          <h2 id={headingId} className="display">
+            {m.heading}
+          </h2>
+        )}
+        {m.body && <Markdown text={m.body} className="lede" />}
+        {m.buttonLabel && m.buttonHref && (
+          <div className="btn-row">
+            <SmartLink href={m.buttonHref} className={`btn btn--lg ${m.tone === "navy" ? "btn--yellow" : "btn--red"}`}>
+              {m.buttonLabel}
+            </SmartLink>
+          </div>
+        )}
       </div>
     </section>
   );

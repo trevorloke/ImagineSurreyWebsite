@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { campaigns, products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
+import { campaigns, contributionLimits, products, trackerAnnouncements, trackerPromises, volunteerTasks } from "../src/lib/db/schema";
 import { seedCampaigns } from "../src/content/campaigns-seed";
 import { seedAnnouncements, seedPromises, seedTests } from "../src/content/tracker-seed";
 import { DEFAULT_TASKS } from "../src/lib/shifts";
@@ -56,5 +56,7 @@ await seedComms(db);
 await seedPages(db);
 // The pledge and petition the home page is built around.
 await db.insert(campaigns).values(seedCampaigns).onConflictDoNothing({ target: campaigns.slug });
+// The 2026 BC contribution limit ($1,429.70), unless a 2026 figure is already stored. Later years go in Admin → Contribution limits.
+await db.insert(contributionLimits).values({ year: 2026, cents: 142970, note: "Elections BC, 2026 local elections contribution limit" }).onConflictDoNothing({ target: contributionLimits.year });
 await client.end();
 console.log(`Seeded ${catalogue.length} products, ${DEFAULT_TASKS.length} volunteer tasks, ${seedPromises.length} tracked promises and ${seedCampaigns.length} campaigns.`);

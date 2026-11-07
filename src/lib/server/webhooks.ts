@@ -16,12 +16,12 @@ import {
 } from "@/lib/contributions";
 import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
 import { sendEmail } from "./email";
-import { lockPerson, type Querier } from "./limits";
+import { limitForYear, lockPerson, type Querier } from "./limits";
 import { notifyDonationSucceeded, notifyMembershipActive, notifyOrderPaid, notifyRecurringStarted } from "./notifications";
 import { latestActiveMembershipExpiry } from "./payments";
 import { findOrCreatePerson } from "./people";
 import { getSettings } from "./settings";
-import { forwardMembership } from "./starbase-forward";
+import { forwardMembership, forwardOrder } from "./starbase-forward";
 import { issuePendingRefunds, reconcileRefunds } from "./stripe-refunds";
 
 type Tx = Querier;
@@ -415,10 +415,13 @@ async function invoicePaid(tx: Tx, p: Extract<Prepared, { kind: "invoice_paid" }
  * the transaction commits. Returns the amount marked per row.
  */
 async function enforceLimit(tx: Tx, rows: Contribution[], paidAt: Date): Promise<Map<string, number>> {
-  const limit = env.contributionLimitCents;
   const pending = new Map<string, number>();
+  // The limit of each payment's own contribution year (Pacific).
+  const limits = new Map<number, number>();
   for (const row of rows) {
     const { year } = pacificYearMonth(row.paidAt ?? paidAt);
+    if (!limits.has(year)) limits.set(year, await limitForYear(year, tx));
+    const limit = limits.get(year)!;
     const [start, end] = pacificYearBounds(year);
     const [{ accepted }] = await tx
       .select({
@@ -503,6 +506,8 @@ async function notify(db: Db, effects: Effects) {
   if (effects.contributionIds.length) await run("Donation", () => notifyDonationSucceeded(db, { contributionIds: effects.contributionIds }));
   for (const recurringDonationId of effects.recurringIds) await run("Recurring gift", () => notifyRecurringStarted(db, { recurringDonationId }));
   for (const orderId of effects.orderIds) await run("Order", () => notifyOrderPaid(db, { orderId }));
+  // A paid order goes to the desk as the "Bought merch" tag only: never the total or the items.
+  for (const orderId of effects.orderIds) await forwardOrder(db, orderId);
 }
 
 /**

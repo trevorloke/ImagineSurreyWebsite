@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: () => {} }));
 
 const sb = await import("@/lib/server/starbase");
-const { deliverWith } = await import("@/lib/server/starbase-outbox");
+const { deliverWith, scrubbedOnceSent } = await import("@/lib/server/starbase-outbox");
 type OutboxStore = import("@/lib/server/starbase-outbox").OutboxStore;
 type OutboxRow = import("@/lib/server/starbase-outbox").OutboxRow;
 
@@ -283,6 +283,7 @@ function row(over: Partial<OutboxRow> = {}): OutboxRow {
   return {
     id: over.id ?? crypto.randomUUID(),
     kind: "petition",
+    endpoint: "/in/v1/people",
     personId: "11111111-1111-4111-8111-111111111111",
     payload: { email: "a@b.ca", source: "petition-x" },
     status: "pending",
@@ -301,9 +302,16 @@ function row(over: Partial<OutboxRow> = {}): OutboxRow {
 function memoryStore(rows: OutboxRow[]) {
   const linked: Record<string, string> = {};
   const store: OutboxStore = {
-    async claimNext({ ignoreBackoff, ids, exclude }) {
+    async claimNext({ ignoreBackoff, ids, exclude, excludeEndpoints }) {
       const due = rows
-        .filter((r) => r.status === "pending" && !exclude.includes(r.id) && (!ids || ids.includes(r.id)) && (ignoreBackoff || !r.nextAttemptAt || r.nextAttemptAt.getTime() <= Date.now()))
+        .filter(
+          (r) =>
+            r.status === "pending" &&
+            !exclude.includes(r.id) &&
+            !excludeEndpoints.includes(r.endpoint) &&
+            (!ids || ids.includes(r.id)) &&
+            (ignoreBackoff || !r.nextAttemptAt || r.nextAttemptAt.getTime() <= Date.now()),
+        )
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
       return due[0] ?? null;
     },
@@ -315,7 +323,7 @@ function memoryStore(rows: OutboxRow[]) {
   return { store, linked };
 }
 
-const sender = (f: typeof fetch, timeoutMs = 50) => (payload: Record<string, unknown>, key: string) => sb.sendPerson(payload, key, { url: URL_, key: KEY, fetch: f, timeoutMs });
+const sender = (f: typeof fetch, timeoutMs = 50) => (payload: Record<string, unknown>, key: string, endpoint: string) => sb.sendToStarbase(endpoint, payload, key, { url: URL_, key: KEY, fetch: f, timeoutMs });
 
 describe("sendPerson", () => {
   it("posts JSON with the Bearer key and the Idempotency-Key", async () => {
@@ -379,7 +387,7 @@ describe("the delivery state machine", () => {
     const { store, linked } = memoryStore([r]);
     const { fn, calls } = fakeFetch([reply(200, { ok: true, person_id: "sb-42" })]);
     const report = await deliverWith(store, 5_000, { send: sender(fn), now: () => NOW });
-    expect(report).toEqual({ sent: 1, failed: 0, retrying: 0, problem: null });
+    expect(report).toEqual({ sent: 1, failed: 0, retrying: 0, problem: null, unsupported: 0 });
     expect(r).toMatchObject({ status: "sent", attempts: 1, starbasePersonId: "sb-42", lastError: null, sentAt: NOW, nextAttemptAt: null });
     expect(linked[r.personId!]).toBe("sb-42");
     expect((calls[0].init.headers as Record<string, string>)["idempotency-key"]).toBe(r.id);
@@ -490,5 +498,143 @@ describe("the delivery state machine", () => {
     expect(calls[0].init.body).toBe(calls[1].init.body);
     expect((calls[0].init.headers as Record<string, string>)["idempotency-key"]).toBe((calls[1].init.headers as Record<string, string>)["idempotency-key"]);
     expect(r.status).toBe("sent");
+  });
+});
+
+// ── Engagement tags, portal edits and consent ─────────────────────────────
+
+describe("engagement tags: a tag on the person, never money", () => {
+  it("an RSVP: the event in the tag, source rsvp", () => {
+    expect(sb.rsvpPerson({ name: "Rae Rsvp", email: "Rae@Example.com", eventTitle: "Newton town hall" })).toEqual({
+      name: "Rae Rsvp",
+      email: "rae@example.com",
+      tags: ["RSVP: Newton town hall"],
+      source: "rsvp",
+    });
+    // A long title is cut to Starbase's 40 characters.
+    expect(sb.rsvpPerson({ email: "a@b.ca", eventTitle: "A very long event title that goes on and on" })!.tags![0].length).toBeLessThanOrEqual(40);
+  });
+
+  it("a paid order: Bought merch, source shop, and nothing about the order", () => {
+    const withExtras = { firstName: "Bea", lastName: "Buyer", email: "bea@example.com", totalCents: 4500, items: [{ slug: "tee" }], stripePaymentIntentId: "pi_1", shipping: { line1: "1 Main" } } as Parameters<typeof sb.orderPerson>[0];
+    const p = sb.orderPerson(withExtras)!;
+    expect(p).toEqual({ first_name: "Bea", last_name: "Buyer", email: "bea@example.com", tags: ["Bought merch"], source: "shop" });
+    expect(JSON.stringify(p)).not.toMatch(/4500|cents|tee|pi_|Main/);
+  });
+
+  it("a confirmed follow: Follows: promise <n>, source tracker", () => {
+    expect(sb.followPerson({ email: "f@example.com", number: 12 })).toEqual({ email: "f@example.com", tags: ["Follows: promise 12"], source: "tracker" });
+  });
+
+  it("a portal edit: the person's own details, source portal", () => {
+    expect(sb.portalPerson({ firstName: "Pat", lastName: "Lee", email: "pat@example.com", phone: "604-555-0100", address: "13450 104 Ave", postalCode: "v3t 1v8" })).toEqual({
+      first_name: "Pat",
+      last_name: "Lee",
+      email: "pat@example.com",
+      phone: "604-555-0100",
+      address: "13450 104 Ave",
+      postal: "V3T 1V8",
+      source: "portal",
+    });
+    expect(sb.portalPerson({ email: "pat@example.com", phone: null, address: "" })).toEqual({ email: "pat@example.com", source: "portal" });
+  });
+});
+
+describe("consent withdrawals for /in/v1/consent", () => {
+  const AT = new Date("2026-11-07T18:30:00Z");
+
+  it("builds { email?, phone?, channel, action: withdraw, reason, at }", () => {
+    expect(sb.consentPayload({ email: " Pat@Example.com ", channel: "email", reason: "unsubscribe", at: AT })).toEqual({
+      email: "pat@example.com",
+      channel: "email",
+      action: "withdraw",
+      reason: "unsubscribe",
+      at: "2026-11-07T18:30:00.000Z",
+    });
+    expect(sb.consentPayload({ phone: "+16045550101", channel: "sms", reason: "stop", at: AT })).toEqual({ phone: "+16045550101", channel: "sms", action: "withdraw", reason: "stop", at: "2026-11-07T18:30:00.000Z" });
+  });
+
+  it("needs an email or a phone, and a known channel, reason and action", () => {
+    expect(sb.consentPayload({ channel: "email", reason: "preference" })).toBeNull();
+    expect(sb.consentPayload({ email: "not-an-email", channel: "email", reason: "preference" })).toBeNull();
+    expect(sb.cleanConsentPayload({ email: "a@b.ca", channel: "fax", action: "withdraw", reason: "stop", at: AT.toISOString() })).toBeNull();
+    expect(sb.cleanConsentPayload({ email: "a@b.ca", channel: "sms", action: "withdraw", reason: "because", at: AT.toISOString() })).toBeNull();
+    // Only withdrawals are ever sent.
+    expect(sb.cleanConsentPayload({ email: "a@b.ca", channel: "email", action: "grant", reason: "preference", at: AT.toISOString() })).toBeNull();
+    // Anything else is dropped.
+    expect(sb.cleanConsentPayload({ email: "a@b.ca", channel: "email", action: "withdraw", reason: "deletion", at: AT.toISOString(), note: "x", amount: 5 })).toEqual({
+      email: "a@b.ca",
+      channel: "email",
+      action: "withdraw",
+      reason: "deletion",
+      at: AT.toISOString(),
+    });
+  });
+
+  it("posts to /in/v1/consent with the Bearer key and the row id as Idempotency-Key", async () => {
+    const { fn, calls } = fakeFetch([reply(200, { ok: true })]);
+    const payload = sb.consentPayload({ email: "a@b.ca", channel: "email", reason: "unsubscribe", at: AT })!;
+    const answer = await sb.sendToStarbase(sb.CONSENT_ENDPOINT, payload, "row-7", { url: URL_, key: KEY, fetch: fn });
+    expect(answer).toEqual({ kind: "ok", personId: null, replayed: false });
+    expect(calls[0].url).toBe(`${URL_}/in/v1/consent`);
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers.authorization).toBe(`Bearer ${KEY}`);
+    expect(headers["idempotency-key"]).toBe("row-7");
+    expect(calls[0].init.body).toBe('{"action":"withdraw","at":"2026-11-07T18:30:00.000Z","channel":"email","email":"a@b.ca","reason":"unsubscribe"}');
+    // Nowhere else.
+    expect((await sb.sendToStarbase("/in/v1/gifts", payload, "k", { url: URL_, key: KEY, fetch: fn })).kind).toBe("refused");
+  });
+
+  it("a 404 from /in/v1/consent is 'not supported yet'; from /in/v1/people it is still a wrong address", () => {
+    const consent404 = sb.classifyAnswer(404, { error: "not found" }, sb.CONSENT_ENDPOINT);
+    expect(consent404.kind).toBe("unsupported");
+    expect((consent404 as { error: string }).error.startsWith(sb.NOT_SUPPORTED_YET)).toBe(true);
+    expect(sb.classifyAnswer(404, {}, sb.PEOPLE_ENDPOINT).kind).toBe("config");
+    expect(sb.classifyAnswer(401, {}, sb.CONSENT_ENDPOINT).kind).toBe("config");
+    expect(sb.classifyAnswer(200, { ok: true }, sb.PEOPLE_ENDPOINT).kind).toBe("retry");
+    expect(sb.classifyAnswer(200, { ok: false }, sb.CONSENT_ENDPOINT).kind).toBe("retry");
+  });
+
+  it("'not supported yet' keeps the row pending without using a try, waits 6 hours, and never stops the run", () => {
+    const NOW = new Date("2026-11-07T00:00:00Z");
+    const answer = sb.classifyAnswer(404, {}, sb.CONSENT_ENDPOINT);
+    const patch = sb.afterAttempt({ attempts: 3 }, answer, NOW);
+    expect(patch).toMatchObject({ status: "pending", attempts: 3, nextAttemptAt: new Date(NOW.getTime() + 6 * 3_600_000) });
+    expect(patch.lastError!.startsWith(sb.NOT_SUPPORTED_YET)).toBe(true);
+    expect(sb.stopsRun(answer)).toBe(false);
+    // However many times: it is never failed for it.
+    let state = { attempts: 0 };
+    for (let i = 0; i < 20; i++) state = sb.afterAttempt(state, answer, NOW);
+    expect(state).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  it("delivery: consent rows wait when Starbase has no endpoint, and the sign-ups behind them still go", async () => {
+    const consentPayload = sb.consentPayload({ email: "u@b.ca", channel: "email", reason: "unsubscribe" })! as Record<string, unknown>;
+    const c1 = row({ kind: "consent", endpoint: sb.CONSENT_ENDPOINT, payload: consentPayload, createdAt: new Date(1) });
+    const c2 = row({ kind: "consent", endpoint: sb.CONSENT_ENDPOINT, payload: consentPayload, createdAt: new Date(2) });
+    const person = row({ createdAt: new Date(3) });
+    const { store } = memoryStore([c1, c2, person]);
+    const { fn, calls } = fakeFetch([reply(404, { error: "not found" }), reply(200, { ok: true, person_id: "sb-5" })]);
+    const report = await deliverWith(store, 5_000, { send: sender(fn) });
+    // One call learns the endpoint isn't there; the second consent row isn't tried in this run.
+    expect(calls.map((c) => new globalThis.URL(c.url).pathname)).toEqual(["/in/v1/consent", "/in/v1/people"]);
+    expect(report).toMatchObject({ sent: 1, unsupported: 1, problem: null, failed: 0 });
+    expect(c1).toMatchObject({ status: "pending", attempts: 0 });
+    expect(c2).toMatchObject({ status: "pending", attempts: 0, lastError: null });
+    expect(person.status).toBe("sent");
+
+    // Once Starbase has it, "Send now" sends them all.
+    const later = fakeFetch([reply(200, { ok: true }), reply(200, { ok: true, replayed: false })]);
+    const again = await deliverWith(store, 5_000, { send: sender(later.fn), ignoreBackoff: true });
+    expect(again).toMatchObject({ sent: 2, unsupported: 0 });
+    expect(c1).toMatchObject({ status: "sent", starbasePersonId: null });
+    expect(c2.status).toBe("sent");
+  });
+
+  it("a deletion's address and number are removed from the row once Starbase has it", () => {
+    const deletion = { endpoint: sb.CONSENT_ENDPOINT, payload: { email: "gone@example.com", phone: "+16045550100", channel: "sms", action: "withdraw", reason: "deletion", at: "x" } };
+    expect(scrubbedOnceSent(deletion)).toEqual({ payload: { email: "(removed after sending)", phone: "(removed after sending)", channel: "sms", action: "withdraw", reason: "deletion", at: "x" } });
+    expect(scrubbedOnceSent({ ...deletion, payload: { ...deletion.payload, reason: "stop" } })).toBeNull();
+    expect(scrubbedOnceSent({ endpoint: sb.PEOPLE_ENDPOINT, payload: { email: "a@b.ca", reason: "deletion" } })).toBeNull();
   });
 });

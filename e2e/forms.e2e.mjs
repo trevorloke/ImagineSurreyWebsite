@@ -35,12 +35,12 @@ await go(page, BASE + "/act");
 ok((await page.locator(".act-card").count()) === 2, "/act lists the two seeded campaigns");
 const actText = await page.locator("main").textContent();
 ok(actText.includes("Get SkyTrain to South Surrey") && actText.includes("Stop Doug McCallum and Mandeep Nagra"), "/act shows both campaign titles");
+ok((await page.locator("main [role=progressbar], main .milestone").count()) === 0 && !/\d+ of [\d,]+ (signatures|pledges)/.test(actText), "/act shows no milestone bars or counts");
 
 await go(page, BASE + `/act/${SLUG}`);
 const start = await count();
-const bar = page.locator("[role=progressbar]").first();
-ok((await bar.getAttribute("aria-valuenow")) === String(start) && (await bar.getAttribute("aria-valuemax")) === "2500", `milestone bar: ${start} of 2500`);
-ok((await page.locator(".milestone-text").first().textContent()).includes(`${start} of 2,500 signatures`), "visible 'N of M' text");
+ok((await page.locator("[role=progressbar], .milestone, .hood-list, .act-latest").count()) === 0, "no milestone bar, town-centre counts or latest-signers list");
+ok(!/\bof 2,500\b|signatures so far|more to reach/.test(await page.locator("main").textContent()), "the page names no signature count or goal");
 ok((await page.locator("h1").textContent()).includes("Get SkyTrain to South Surrey"), "campaign title rendered");
 ok((await page.locator(".share-links a").count()) >= 4 && (await page.locator('.share-links a[href*="source%3Dshare-whatsapp"]').count()) === 1, "share links carry their channel source");
 ok((await page.locator("#act-updates").isChecked()) === false && (await page.locator("#act-sms").isChecked()) === false, "consent ticks are never pre-checked");
@@ -65,7 +65,7 @@ ok((await page.locator("#act-postal-preview").textContent()).includes("That’s 
 await sign("quiet@example.com");
 ok((await page.locator(".success-card h3").textContent()).includes("Your name is on the petition"), "signing shows the success card");
 ok(await page.evaluate(() => document.activeElement?.tagName === "H3" && document.activeElement.closest(".success-card") !== null), "focus moves to the success heading");
-ok((await page.locator(".milestone-count").first().textContent()) === String(start + 1), "count increments on the page after signing");
+ok(!/You’re one of|people have signed|people who/.test(await page.locator(".success-card").textContent()), "the success card names no count");
 ok((await count()) === start + 1, "signature stored");
 ok((await consentRows("quiet@example.com")).length === 0, "no consent row without the updates tick");
 ok((await sql`select contact_consent_at from people where email = 'quiet@example.com'`)[0].contact_consent_at === null, "contact_consent_at stays null without the tick");
@@ -111,16 +111,11 @@ r = await post("/api/signatures", { campaign: "stop-mccallum-pledge", firstName:
 ok(r.status === 404, "inactive campaign → 404");
 await sql`update campaigns set active = true where slug = 'stop-mccallum-pledge'`;
 r = await post("/api/signatures", { campaign: SLUG, firstName: "Pat", lastName: "Again", email: "quiet@example.com", postalCode: "V3W 2A1", updatesConsent: false });
-ok(r.status === 200 && r.body.count === before && (await count()) === before, "a second signature with the same email does not double count");
+ok(r.status === 200 && !("count" in r.body) && (await count()) === before, "a second signature with the same email does not double count, and the response carries no count");
 ok(r.body.campaign?.slug === SLUG && r.body.campaign?.kind === "petition" && typeof r.body.campaign?.shareText === "string", "response carries the campaign summary");
 
-// ── Count endpoint and print sheet ────────────────────────────────────────
-const countRes = await fetch(BASE + `/api/campaigns/${SLUG}/count`);
-const counts = await countRes.json();
-ok(countRes.status === 200 && counts.count === (await count()) && counts.milestone === 2500 && counts.goal === 2500, `count endpoint matches SQL (${counts.count})`);
-ok((countRes.headers.get("cache-control") ?? "").includes("max-age=60"), "count endpoint is cacheable for a minute");
-ok(Array.isArray(counts.byNeighbourhood) && counts.byNeighbourhood.length === 0 && Array.isArray(counts.latestNeighbourhoods) && counts.latestNeighbourhoods.length === 0, "town centres under 10 signers are hidden, in the counts and in the latest signers list");
-ok((await fetch(BASE + "/api/campaigns/no-such/count")).status === 404, "count for unknown campaign → 404");
+// ── No public count endpoint; the print sheet ────────────────────────────
+ok((await fetch(BASE + `/api/campaigns/${SLUG}/count`)).status === 404, "the public count endpoint is gone");
 await go(page, BASE + `/act/${SLUG}/print`);
 ok((await page.locator(".sheet-row").count()) === 12, "print sheet has 12 signature rows");
 const sheet = await page.locator(".sheet").textContent();

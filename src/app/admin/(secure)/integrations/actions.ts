@@ -63,6 +63,7 @@ function describe(report: DeliveryReport): string {
   const parts = [`${report.sent} sent`];
   if (report.failed) parts.push(`${report.failed} refused`);
   if (report.retrying) parts.push(`${report.retrying} will be retried`);
+  if (report.unsupported) parts.push("unsubscribes and STOPs still wait: this Starbase doesn't take them yet (/in/v1/consent)");
   return parts.join(", ");
 }
 

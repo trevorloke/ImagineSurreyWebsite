@@ -2,6 +2,8 @@
 // webhook and the supporter portal. No server-only imports so the client can
 // use them too, and every function is exported so tests can cover it.
 
+import { formatCents } from "./money";
+
 export type Frequency = "one_time" | "monthly";
 export type Tier = "standard" | "star" | "superstar";
 export type Slate = "council" | "school_board";
@@ -53,6 +55,16 @@ export function remainingMonthlyPayments(monthIndex: number, paidThisMonth: bool
 }
 
 const PACIFIC = "America/Vancouver";
+
+/** The Pacific calendar date of an instant, as YYYY-MM-DD. */
+export function pacificDateIso(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: PACIFIC, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+/** The contribution year an instant falls in: the Pacific calendar year, so it turns over at midnight on January 1 in Surrey. */
+export function pacificYear(date: Date): number {
+  return Number(pacificDateIso(date).slice(0, 4));
+}
 
 /** Year and month in Pacific time, which is how contribution years are counted. */
 export function pacificYearMonth(date: Date): { year: number; monthIndex: number } {
@@ -303,4 +315,105 @@ export function addYear(date: Date): Date {
 export function membershipTerm(latestActiveExpiry: Date | null | undefined, now: Date): { startsAt: Date; expiresAt: Date } {
   const startsAt = latestActiveExpiry && latestActiveExpiry.getTime() > now.getTime() ? new Date(latestActiveExpiry) : new Date(now);
   return { startsAt, expiresAt: addYear(startsAt) };
+}
+
+// ── Contribution limits by year ─────────────────────────────────────────────
+
+export type YearLimit = { year: number; cents: number };
+
+/**
+ * The annual limit for a contribution year: the figure stored for that year,
+ * else the configured fallback (CONTRIBUTION_LIMIT_CENTS).
+ */
+export function limitFromRows(rows: readonly YearLimit[], year: number, fallbackCents: number): number {
+  const row = rows.find((r) => r.year === year);
+  return row && row.cents > 0 ? row.cents : fallbackCents;
+}
+
+/**
+ * The year whose limit the admin should be asked for, or null: next year's
+ * from December 1 (Pacific) when none is stored yet, and this year's whenever
+ * none is stored (gifts are then checked against CONTRIBUTION_LIMIT_CENTS,
+ * which may be last year's figure).
+ */
+export function limitYearNeeded(now: Date, storedYears: readonly number[]): number | null {
+  const { year, monthIndex } = pacificYearMonth(now);
+  if (!storedYears.includes(year)) return year;
+  if (monthIndex === 11 && !storedYears.includes(year + 1)) return year + 1;
+  return null;
+}
+
+// ── Membership by donation ─────────────────────────────────────────────────
+// Membership is pay what you can, renewed every year. MEMBERSHIP_FEE_CENTS is
+// the minimum; youth members (14 to 30 on the day they join) have half of it,
+// or MEMBERSHIP_YOUTH_MIN_CENTS when that is set.
+
+export const YOUTH_MIN_AGE = 14;
+export const YOUTH_MAX_AGE = 30;
+
+/** Suggested amounts on the join form, from which the minimum and the next three above it are shown. */
+export const MEMBERSHIP_SUGGESTED_CENTS = [1000, 2500, 5000, 10000];
+
+export type MembershipMinimums = {
+  /** The minimum for everyone else. 0 means membership is free. */
+  standardCents: number;
+  /** The minimum for youth members. */
+  youthCents: number;
+};
+
+/** The two minimums from the configured standard minimum and the optional youth minimum (never above the standard one). */
+export function membershipMinimums(standardCents: number, youthCents?: number | null): MembershipMinimums {
+  const standard = Math.max(0, Math.floor(standardCents));
+  if (standard === 0) return { standardCents: 0, youthCents: 0 };
+  const youth = typeof youthCents === "number" && Number.isFinite(youthCents) ? Math.max(0, Math.floor(youthCents)) : Math.ceil(standard / 2);
+  return { standardCents: standard, youthCents: Math.min(youth, standard) };
+}
+
+/** Whole years of age on a calendar date (YYYY-MM-DD), or undefined when the birthdate isn't one. */
+export function ageOnDate(birthdate: string, onIso: string): number | undefined {
+  const b = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthdate);
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(onIso);
+  if (!b || !d) return undefined;
+  let age = Number(d[1]) - Number(b[1]);
+  if (d[2] + d[3] < b[2] + b[3]) age -= 1;
+  return age;
+}
+
+/** Youth membership: aged 14 to 30, inclusive, on the Pacific day they join. */
+export function isYouthMember(birthdate: string, now: Date): boolean {
+  const age = ageOnDate(birthdate, pacificDateIso(now));
+  return age !== undefined && age >= YOUTH_MIN_AGE && age <= YOUTH_MAX_AGE;
+}
+
+/** The minimum that applies to this person. */
+export function membershipMinimumFor(minimums: MembershipMinimums, youth: boolean): number {
+  return youth ? minimums.youthCents : minimums.standardCents;
+}
+
+/** The suggested amounts for a minimum: the minimum itself, then the usual amounts above it, four in all. */
+export function membershipSuggestions(minCents: number): number[] {
+  return [minCents, ...MEMBERSHIP_SUGGESTED_CENTS.filter((c) => c > minCents)].slice(0, 4);
+}
+
+/** What the form and the server say about an amount under the minimum. It names the youth minimum when it applies. */
+export function membershipMinimumMessage(minimums: MembershipMinimums, youth: boolean): string {
+  if (youth) return `The smallest youth membership (ages ${YOUTH_MIN_AGE} to ${YOUTH_MAX_AGE}) is ${formatCents(minimums.youthCents)} a year.`;
+  const youthNote = minimums.youthCents < minimums.standardCents ? ` (${formatCents(minimums.youthCents)} for members aged ${YOUTH_MIN_AGE} to ${YOUTH_MAX_AGE})` : "";
+  return `The smallest membership is ${formatCents(minimums.standardCents)} a year${youthNote}.`;
+}
+
+/** What the form and the server say about an amount over the most anyone can give in a year. */
+export function membershipMaximumMessage(maxCents: number): string {
+  return `The most you can give is ${formatCents(maxCents)} a year under BC law.`;
+}
+
+/**
+ * Check a chosen membership amount: whole cents, at least the minimum that
+ * applies, and no more than the year's contribution limit (a membership is a
+ * contribution). Returns the message to show, or null when it is fine.
+ */
+export function membershipAmountProblem(amountCents: number, minimums: MembershipMinimums, youth: boolean, maxCents: number): string | null {
+  if (!Number.isInteger(amountCents) || amountCents < membershipMinimumFor(minimums, youth)) return membershipMinimumMessage(minimums, youth);
+  if (amountCents > maxCents) return membershipMaximumMessage(maxCents);
+  return null;
 }

@@ -174,14 +174,6 @@ export function roomLeftCents(slate: Slate, totals: ContributionTotals, limitCen
   return probe.ok ? limitCents : (probe.remainingCents ?? 0);
 }
 
-// ── Goal bars ──────────────────────────────────────────────────────────────
-
-/** The goal while the count is under it; after that, the next multiple of 500 above the count. */
-export function nextMilestone(count: number, goal: number | null | undefined, step = 500): number {
-  if (goal && goal > 0 && count < goal) return goal;
-  return (Math.floor(Math.max(count, 0) / step) + 1) * step;
-}
-
 // ── Pacific weeks ──────────────────────────────────────────────────────────
 
 /** The Sunday-to-Saturday week in Surrey that contains a YYYY-MM-DD date. */

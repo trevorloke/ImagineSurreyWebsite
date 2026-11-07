@@ -20,6 +20,7 @@ import { escapeLike, PAGE_SIZE, type PeopleQuery } from "@/components/admin/peop
 import { pacific, PACIFIC } from "./admin-data";
 import { ensureReferralCode } from "./people";
 import { normalizePhone } from "./sms";
+import { forwardConsentWithdrawal } from "./starbase-forward";
 
 const TZ = sql.raw(`'${PACIFIC}'`);
 // Raw query results carry timestamps as text, so the timeline's instant is
@@ -351,6 +352,8 @@ export async function addNote(db: Db, id: string, author: { id: string; name: st
  * in the same transaction: the email and text logs are deleted, the consent
  * ledger keeps only what was decided and when, orders lose the address and
  * shipping details, and outstanding sign-in links are deleted.
+ * Starbase is then told to stop emailing and texting them (a "deletion"
+ * withdrawal); the address and number in it are removed here once sent.
  * Returns the address the record used to have, for the audit entry.
  */
 export async function anonymizePerson(db: Db, id: string): Promise<{ previousEmail: string } | null> {
@@ -419,6 +422,11 @@ export async function anonymizePerson(db: Db, id: string): Promise<{ previousEma
     await tx.delete(starbaseOutbox).where(or(eq(starbaseOutbox.personId, id), sql`${starbaseOutbox.payload} ->> 'email' = ${person.email}`));
     await tx.delete(promiseFollows).where(sql`${promiseFollows.personId} = ${id} or ${promiseFollows.email} = ${person.email}`);
   });
+  // Not for a record that was already anonymized: its address is a placeholder.
+  if (!person.email.endsWith("@invalid")) {
+    await forwardConsentWithdrawal(db, { personId: id, email: person.email, channel: "email", reason: "deletion" });
+    if (person.phone) await forwardConsentWithdrawal(db, { personId: id, email: person.email, phone: person.phone, channel: "sms", reason: "deletion" });
+  }
   return { previousEmail: person.email };
 }
 

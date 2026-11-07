@@ -41,15 +41,15 @@
   flex-wrap: wrap;
   gap: 12px;
 }
-.counters {
+.hood-asks {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
 }
-.counter {
+.hood-ask {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -58,25 +58,19 @@
   background: var(--surface);
   border: 1px solid var(--line);
 }
-.counter-value {
-  font-size: 34px;
-  font-weight: 900;
-  line-height: 1;
-  color: var(--navy);
-}
-.counter-first {
+.hood-ask-title {
   font-size: 20px;
   font-weight: 800;
   line-height: 1.2;
   color: var(--navy);
 }
-.counter-label {
+.hood-ask-label {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--muted);
 }
-.counter a {
+.hood-ask a {
   font-size: 14px;
   font-weight: 700;
 }

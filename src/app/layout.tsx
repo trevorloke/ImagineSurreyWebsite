@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { AnnouncementBar } from "@/components/shell/AnnouncementBar";
 import { StickyActions } from "@/components/shell/StickyActions";
+import { VisitBeacon } from "@/components/VisitBeacon";
 import { env } from "@/lib/env";
 import { shellSettings } from "@/lib/server/home";
 import "./globals.css";
@@ -35,7 +36,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = { themeColor: "#003979" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { org, socials, announcement, seo } = await shellSettings();
+  const { org, socials, announcement, seo, header } = await shellSettings();
   const siteUrl = env.siteUrl;
   const organization = {
     "@context": "https://schema.org",
@@ -60,8 +61,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </a>
         {/* Remembers ?ref= and ?source= for 30 days so later sign-ups are credited. */}
         <TrackingCapture />
+        {/* Counts page views for the admin dashboard: first-party, no cookie, no IP stored. */}
+        <VisitBeacon />
         {showAnnouncement && <AnnouncementBar text={announcement.text} linkLabel={announcement.linkLabel} linkHref={announcement.linkHref} />}
-        <Header />
+        <Header links={header.links} cta={{ label: header.ctaLabel, href: header.ctaHref }} />
         <main id="main" tabIndex={-1}>
           {children}
         </main>

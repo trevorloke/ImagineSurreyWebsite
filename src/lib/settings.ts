@@ -3,6 +3,7 @@
 // the merged result through getSettings(). Adding a section means adding it
 // here; the admin form and the database row follow from the schema.
 import { z } from "zod";
+import { CUSTOM_TONES, DEFAULT_MODULES, MODULE_KINDS } from "@/lib/home-modules";
 import { board, committees, heroWords, memberBenefits, pillars, site, skytrainAsks, socials, stopItems } from "@/content/site";
 
 const text = (max: number) => z.string().trim().max(max);
@@ -10,6 +11,35 @@ const url = z.string().trim().max(500);
 const image = z.object({ url: url.optional().default(""), alt: text(300).optional().default("") });
 
 export const sections = {
+  header: {
+    label: "Title bar",
+    description: "The bar across the top of every page: the logo, up to three links, the Donate button and the Menu. Keep it short.",
+    schema: z.object({
+      links: z.array(z.object({ label: text(30), href: url })).max(3).default([]),
+      ctaLabel: text(30).default("Donate"),
+      ctaHref: url.default("/donate"),
+    }),
+  },
+  homeModules: {
+    label: "Home page modules",
+    description: "Which sections the home page shows, in what order, plus your own text blocks. Easiest to change in Admin → Home page.",
+    schema: z.object({
+      modules: z
+        .array(
+          z.object({
+            kind: z.enum(MODULE_KINDS),
+            enabled: z.boolean().default(true),
+            heading: text(120).default(""),
+            body: text(4000).default(""),
+            buttonLabel: text(40).default(""),
+            buttonHref: url.default(""),
+            tone: z.enum(CUSTOM_TONES).default("white"),
+          }),
+        )
+        .max(40)
+        .default(DEFAULT_MODULES),
+    }),
+  },
   org: {
     label: "Organization",
     description: "Name, contact details and links used across the site and in emails.",
@@ -70,6 +100,9 @@ export const sections = {
       title: text(80).default("Become a member"),
       intro: text(500).default("Imagine Surrey is residents, not a brand. Members set the priorities, have a direct say in what we stand for, and hear first when something is happening in their neighbourhood."),
       benefits: z.array(z.object({ title: text(60), body: text(300) })).max(6).default(memberBenefits),
+      // Membership is by donation; the form adds the minimums from MEMBERSHIP_FEE_CENTS.
+      amountTitle: text(80).default("Your membership, by donation"),
+      amountNote: text(300).default("Give what you can. Membership runs for a year, and every dollar goes to organizing in Surrey."),
       photo: image.default({ url: "/images/members-rally.jpg", alt: "A packed room of Imagine Surrey supporters cheering and holding up signs that read change that works for you" }),
       newsletterTitle: text(80).default("Not ready to join? Get the newsletter"),
       newsletterText: text(300).default("News and events from around Surrey. By subscribing you agree to receive email from Imagine Surrey. Unsubscribe anytime."),

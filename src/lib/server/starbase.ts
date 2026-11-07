@@ -7,15 +7,21 @@ import { formatLongDate, SLOT_BY_ID, type Slot } from "@/lib/shifts";
 // Starbase takes people in through a small JSON API with a website key:
 //
 //   Authorization: Bearer sbk_…
-//   GET  /in/v1/ping    → { ok, campaign, key }
-//   POST /in/v1/people  → { ok: true, person_id }   (Idempotency-Key header)
+//   GET  /in/v1/ping     → { ok, campaign, key }
+//   POST /in/v1/people   → { ok: true, person_id }   (Idempotency-Key header)
+//   POST /in/v1/consent  → { ok: true }              (Idempotency-Key header)
 //
 // It is called from this server only, never from a visitor's browser, which
 // would show the key to anyone. Its body schema is strict: any field outside
 // STARBASE_FIELDS, or any value over its length, is refused with a 400, so
 // every payload is built by cleanStarbasePerson, which mirrors that schema.
-// Money, ratings, roles, RSVPs and orders are never sent: gifts are logged at
-// the desk (Donations → Log a gift), where the contribution limits are checked.
+// Money, ratings and roles are never sent: gifts are logged at the desk
+// (Donations → Log a gift), where the contribution limits are checked. RSVPs,
+// paid shop orders and promise follows go as tags on the person, nothing more.
+//
+// /in/v1/consent carries withdrawals (unsubscribe, text STOP, a preference
+// change, a deletion) so both apps stop contacting the person. Starbase may
+// not have it yet: a 404 there means "not supported yet", and those rows wait.
 
 // ── The payload ────────────────────────────────────────────────────────────
 
@@ -284,6 +290,76 @@ export function deletionRequestPerson(p: { firstName?: Text; lastName?: Text; em
   });
 }
 
+// ── Engagement tags ────────────────────────────────────────────────────────
+// So the desk sees who is engaged. A tag on the person and nothing else: no
+// amounts, items, guests or anything about payment.
+
+export const MERCH_TAG = "Bought merch";
+
+/** "RSVP: Town hall in Newton" for an event RSVP. */
+export function rsvpPerson(r: { name?: Text; email: string; eventTitle: string }): StarbasePerson | null {
+  return toStarbasePerson({ name: r.name, email: r.email, tags: [`RSVP: ${r.eventTitle}`], source: "rsvp" });
+}
+
+/** A paid shop order: the "Bought merch" tag. Deliberately takes no amount or items. */
+export function orderPerson(o: { firstName?: Text; lastName?: Text; email: string }): StarbasePerson | null {
+  return toStarbasePerson({ firstName: o.firstName, lastName: o.lastName, email: o.email, tags: [MERCH_TAG], source: "shop" });
+}
+
+/** A confirmed promise-tracker follow: "Follows: promise 12". */
+export function followPerson(f: { email: string; number: number }): StarbasePerson | null {
+  return toStarbasePerson({ email: f.email, tags: [`Follows: promise ${f.number}`], source: "tracker" });
+}
+
+/**
+ * Details a signed-in supporter changed in the portal (/me/preferences).
+ * Starbase fills blanks only, the same rule as every sign-up, so what is on
+ * file there is never overwritten.
+ */
+export function portalPerson(p: { firstName?: Text; lastName?: Text; email: string; phone?: Text; address?: Text; postalCode?: Text }): StarbasePerson | null {
+  return toStarbasePerson({ firstName: p.firstName, lastName: p.lastName, email: p.email, phone: p.phone, address: p.address, postalCode: p.postalCode, source: "portal" });
+}
+
+// ── Consent withdrawals (POST /in/v1/consent) ──────────────────────────────
+
+export const CONSENT_CHANNELS = ["email", "sms"] as const;
+export type ConsentSyncChannel = (typeof CONSENT_CHANNELS)[number];
+export const CONSENT_REASONS = ["unsubscribe", "stop", "preference", "deletion"] as const;
+export type ConsentReason = (typeof CONSENT_REASONS)[number];
+
+/** The body of POST /in/v1/consent, both ways. Only withdrawals are ever sent. */
+export type ConsentPayload = {
+  email?: string;
+  phone?: string;
+  channel: ConsentSyncChannel;
+  action: "withdraw";
+  reason: ConsentReason;
+  /** When it happened on this side, ISO 8601. */
+  at: string;
+};
+
+/**
+ * A withdrawal Starbase can match: the email (checked and lower-cased) or the
+ * phone, the channel, the reason and the time. Null when there is nothing to
+ * match on, or the channel or reason is unknown.
+ */
+export function cleanConsentPayload(raw: Record<string, unknown> | null | undefined): ConsentPayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const channel = CONSENT_CHANNELS.find((c) => c === raw.channel);
+  const reason = CONSENT_REASONS.find((r) => r === raw.reason);
+  if (!channel || !reason || raw.action !== "withdraw") return null;
+  const email = cleanEmail(raw.email);
+  const phone = cap(raw.phone, STARBASE_LIMITS.phone);
+  if (!email && !phone) return null;
+  const at = typeof raw.at === "string" && !Number.isNaN(Date.parse(raw.at)) ? new Date(raw.at).toISOString() : new Date().toISOString();
+  return { ...(email ? { email } : {}), ...(phone ? { phone } : {}), channel, action: "withdraw", reason, at };
+}
+
+/** A withdrawal recorded on the website, for Starbase. */
+export function consentPayload(w: { email?: Text; phone?: Text; channel: ConsentSyncChannel; reason: ConsentReason; at?: Date }): ConsentPayload | null {
+  return cleanConsentPayload({ email: w.email, phone: w.phone, channel: w.channel, action: "withdraw", reason: w.reason, at: (w.at ?? new Date()).toISOString() });
+}
+
 /**
  * JSON with keys in sorted order at every level. Starbase compares the raw
  * body of a retry with the first one (same Idempotency-Key, different body is
@@ -321,43 +397,59 @@ function config(c: StarbaseConfig = {}) {
   return { url: c.url ?? env.starbaseUrl, key: c.key ?? env.starbaseKey, fetch: c.fetch ?? fetch, timeoutMs: c.timeoutMs ?? STARBASE_TIMEOUT_MS };
 }
 
+/** Starbase's two intake endpoints. Every outbox row names the one it goes to. */
+export const PEOPLE_ENDPOINT = "/in/v1/people";
+export const CONSENT_ENDPOINT = "/in/v1/consent";
+export type StarbaseEndpoint = typeof PEOPLE_ENDPOINT | typeof CONSENT_ENDPOINT;
+export const STARBASE_ENDPOINTS: StarbaseEndpoint[] = [PEOPLE_ENDPOINT, CONSENT_ENDPOINT];
+
+/** How a waiting row says Starbase has no consent endpoint yet (never starts with a status, so it isn't read as a key problem). */
+export const NOT_SUPPORTED_YET = "Not supported yet";
+
 /**
  * What one call came to:
- *   ok       Starbase took the person (a replay of an earlier answer counts)
- *   refused  400, 409, 415 or another 4xx: this body will never be taken as it is
- *   config   401, 403, 404: the key or address is wrong; nothing about the row is
- *   retry    429, 5xx, a timeout, a network error or an answer we can't read
+ *   ok           Starbase took it (a replay of an earlier answer counts)
+ *   refused      400, 409, 415 or another 4xx: this body will never be taken as it is
+ *   config       401, 403, 404: the key or address is wrong; nothing about the row is
+ *   unsupported  a 404 from /in/v1/consent: this Starbase doesn't take consent yet
+ *   retry        429, 5xx, a timeout, a network error or an answer we can't read
  */
 export type StarbaseAnswer =
-  | { kind: "ok"; personId: string; replayed: boolean }
+  | { kind: "ok"; personId: string | null; replayed: boolean }
   | { kind: "refused"; status: number; error: string }
   | { kind: "config"; status: number; error: string }
+  | { kind: "unsupported"; status: number; error: string }
   | { kind: "retry"; status: number | null; error: string };
 
-/** Sort an HTTP answer from POST /in/v1/people into a StarbaseAnswer. */
-export function classifyAnswer(status: number, body: unknown): StarbaseAnswer {
+/** Sort an HTTP answer from one of the intake endpoints into a StarbaseAnswer. */
+export function classifyAnswer(status: number, body: unknown, endpoint: string = PEOPLE_ENDPOINT): StarbaseAnswer {
   const b = (body && typeof body === "object" ? body : {}) as { ok?: unknown; person_id?: unknown; replayed?: unknown; error?: unknown };
   const message = typeof b.error === "string" && b.error ? b.error.slice(0, 500) : `HTTP ${status}`;
   if (status >= 200 && status < 300) {
-    if (b.ok === true && typeof b.person_id === "string" && b.person_id) return { kind: "ok", personId: b.person_id, replayed: b.replayed === true };
-    return { kind: "retry", status, error: "Starbase answered without a person id" };
+    const personId = typeof b.person_id === "string" && b.person_id ? b.person_id : null;
+    // A person always comes back with Starbase's id; a consent change needs only ok.
+    if (b.ok === true && (personId || endpoint === CONSENT_ENDPOINT)) return { kind: "ok", personId, replayed: b.replayed === true };
+    return { kind: "retry", status, error: endpoint === CONSENT_ENDPOINT ? "Starbase answered without ok" : "Starbase answered without a person id" };
   }
+  if (status === 404 && endpoint === CONSENT_ENDPOINT) return { kind: "unsupported", status, error: `${NOT_SUPPORTED_YET}: this Starbase has no ${CONSENT_ENDPOINT} (404), so the withdrawal waits here until it does` };
   if (status === 401 || status === 403 || status === 404) return { kind: "config", status, error: message };
   if (status === 429 || status === 408 || status >= 500) return { kind: "retry", status, error: message };
   return { kind: "refused", status, error: message };
 }
 
 /**
- * POST one person. The Idempotency-Key makes a retry safe: Starbase answers a
- * repeat of the same key and body with its first answer. Never throws.
+ * POST one body to an intake endpoint. The Idempotency-Key makes a retry
+ * safe: Starbase answers a repeat of the same key and body with its first
+ * answer. Never throws.
  */
-export async function sendPerson(payload: StarbasePerson | Record<string, unknown>, idempotencyKey: string, c?: StarbaseConfig): Promise<StarbaseAnswer> {
+export async function sendToStarbase(endpoint: string, payload: Record<string, unknown>, idempotencyKey: string, c?: StarbaseConfig): Promise<StarbaseAnswer> {
   const { url, key, fetch: doFetch, timeoutMs } = config(c);
   const problem = starbaseUrlProblem(url) ?? (key ? null : "STARBASE_KEY is not set.");
   if (problem) return { kind: "config", status: 0, error: problem };
+  if (!(STARBASE_ENDPOINTS as string[]).includes(endpoint)) return { kind: "refused", status: 0, error: `Unknown Starbase endpoint ${endpoint}` };
   let res: Response;
   try {
-    res = await doFetch(`${url}/in/v1/people`, {
+    res = await doFetch(`${url}${endpoint}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${key}`,
@@ -379,7 +471,12 @@ export async function sendPerson(payload: StarbasePerson | Record<string, unknow
   } catch {
     body = null;
   }
-  return classifyAnswer(res.status, body);
+  return classifyAnswer(res.status, body, endpoint);
+}
+
+/** POST one person to /in/v1/people. Never throws. */
+export async function sendPerson(payload: StarbasePerson | Record<string, unknown>, idempotencyKey: string, c?: StarbaseConfig): Promise<StarbaseAnswer> {
+  return sendToStarbase(PEOPLE_ENDPOINT, payload as Record<string, unknown>, idempotencyKey, c);
 }
 
 export type PingResult = { ok: true; campaign: string; key: string } | { ok: false; status: number | null; error: string };
@@ -427,24 +524,31 @@ export type OutboxPatch = {
   sentAt?: Date;
 };
 
+/** How long a consent row waits after a "not supported yet" before it is tried again. */
+export const UNSUPPORTED_WAIT_MS = 6 * 3_600_000;
+
 /**
  * The row after one attempt:
- *   ok       → sent, with the id Starbase answered
- *   refused  → failed for good, with Starbase's message (staff can Retry it)
- *   config   → still pending and due, attempts unchanged: a wrong key or
- *              address is not the row's fault, and is shown in the admin
- *   retry    → pending again after 1 min, 5 min, 30 min, 2 h, then every
- *              12 h; failed once MAX_ATTEMPTS attempts have been made
+ *   ok           → sent, with the id Starbase answered (people only)
+ *   refused      → failed for good, with Starbase's message (staff can Retry it)
+ *   config       → still pending and due, attempts unchanged: a wrong key or
+ *                  address is not the row's fault, and is shown in the admin
+ *   unsupported  → still pending, attempts unchanged, tried again in 6 hours
+ *                  (or at once with "Send now"): never failed for it
+ *   retry        → pending again after 1 min, 5 min, 30 min, 2 h, then every
+ *                  12 h; failed once MAX_ATTEMPTS attempts have been made
  */
 export function afterAttempt(row: { attempts: number }, answer: StarbaseAnswer, now: Date): OutboxPatch {
   const attempts = row.attempts + 1;
   switch (answer.kind) {
     case "ok":
-      return { status: "sent", attempts, lastError: null, lastAttemptAt: now, nextAttemptAt: null, starbasePersonId: answer.personId, sentAt: now };
+      return { status: "sent", attempts, lastError: null, lastAttemptAt: now, nextAttemptAt: null, ...(answer.personId ? { starbasePersonId: answer.personId } : {}), sentAt: now };
     case "refused":
       return { status: "failed", attempts, lastError: `${answer.status}: ${answer.error}`, lastAttemptAt: now, nextAttemptAt: null };
     case "config":
       return { status: "pending", attempts: row.attempts, lastError: `${answer.status || "Not configured"}: ${answer.error}`, lastAttemptAt: now, nextAttemptAt: now };
+    case "unsupported":
+      return { status: "pending", attempts: row.attempts, lastError: answer.error, lastAttemptAt: now, nextAttemptAt: new Date(now.getTime() + UNSUPPORTED_WAIT_MS) };
     case "retry": {
       const lastError = `${answer.status ?? "No answer"}: ${answer.error}`;
       if (attempts >= MAX_ATTEMPTS) return { status: "failed", attempts, lastError: `${lastError} (gave up after ${attempts} attempts)`, lastAttemptAt: now, nextAttemptAt: null };
@@ -453,7 +557,11 @@ export function afterAttempt(row: { attempts: number }, answer: StarbaseAnswer, 
   }
 }
 
-/** A wrong key, a rate limit or an outage affects every row, so the run stops there. */
+/**
+ * A wrong key, a rate limit or an outage affects every row, so the run stops
+ * there. "Not supported yet" affects only that endpoint: the run goes on
+ * without it.
+ */
 export function stopsRun(answer: StarbaseAnswer): boolean {
   return answer.kind === "config" || answer.kind === "retry";
 }

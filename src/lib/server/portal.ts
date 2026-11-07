@@ -32,6 +32,7 @@ import { consentHistory } from "./consent";
 import { sendEmail } from "./email";
 import { requireMember } from "./member-auth";
 import { contributionTotals } from "./payments";
+import { limitForYear } from "./limits";
 import { ensureReferralCode, type Person } from "./people";
 import { getSettings } from "./settings";
 
@@ -127,7 +128,7 @@ export async function givingSummary(db: Db, personId: string, now = new Date()):
 
   // The same totals and rule the donate form uses, so "room left" here is what it will accept.
   const totals = await contributionTotals(db, personId, now);
-  const limitCents = env.contributionLimitCents;
+  const limitCents = await limitForYear(year, db);
   const slates = (["council", "school_board"] as Slate[])
     .filter((s) => s === "council" || given[s] > 0 || (totals.yearToDate[s] ?? 0) > 0 || (totals.committed[s] ?? 0) > 0)
     .map((slate) => ({ slate, givenCents: given[slate], roomLeftCents: roomLeftCents(slate, totals, limitCents) }));

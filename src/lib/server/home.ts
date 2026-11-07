@@ -1,26 +1,15 @@
 import "server-only";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
-import { parseArea, type Area } from "@/components/shell/area";
 import { getDb } from "@/lib/db";
 import { events, shiftOpenings, shifts, trackerPromises, trackerUpdates } from "@/lib/db/schema";
-import { NEIGHBOURHOODS, neighbourhoodForPostalCode } from "@/lib/neighbourhoods";
 import { defaultSettings, type Settings } from "@/lib/settings";
 import { todayInSurrey, type Slot } from "@/lib/shifts";
 import type { PromiseStatus } from "@/lib/tracker";
 import { TAGS } from "./cache";
 import { getSettings } from "./settings";
 
-/** The pledge and the petition the home page is built around. */
-export const PLEDGE_CAMPAIGN = "stop-mccallum-pledge";
-export const PETITION_CAMPAIGN = "skytrain-south-surrey";
-
-export type AreaCounts = { pledge: number; petition: number };
-
 export type HomeLive = {
-  members: number;
-  pledgeSigners: number;
-  petitionSigners: number;
   /** Dates are ISO strings: cached values travel as JSON. */
   nextEvents: { slug: string; title: string; startsAt: string; location: string; neighbourhood: string | null }[];
   nextShift:
@@ -28,27 +17,13 @@ export type HomeLive = {
     | { kind: "scheduled"; date: string; slot: Slot }
     | null;
   trackerUpdates: { number: number; title: string; status: PromiseStatus; date: string; note: string }[];
-  byNeighbourhood: Record<Area, AreaCounts>;
-  /** The counts for the area asked for, when one was. */
-  local: { area: Area; counts: AreaCounts } | null;
 };
 
-async function loadHomeLive(area: Area | null): Promise<HomeLive> {
+async function loadHomeLive(): Promise<HomeLive> {
   const db = getDb();
   const today = todayInSurrey();
 
-  const [memberRows, signerRows, areaRows, eventRows, openingRows, updateRows] = await Promise.all([
-    db.execute<{ n: number }>(
-      sql`select count(distinct person_id)::int as n from memberships where status = 'active' and (expires_at is null or expires_at > now())`,
-    ),
-    db.execute<{ campaign: string; n: number }>(
-      sql`select campaign, count(distinct lower(email))::int as n from campaign_signatures where campaign in (${PLEDGE_CAMPAIGN}, ${PETITION_CAMPAIGN}) group by campaign`,
-    ),
-    // Older signatures have no neighbourhood stored; fall back to the postal code.
-    db.execute<{ campaign: string; neighbourhood: string | null; fsa: string; n: number }>(
-      sql`select campaign, neighbourhood, upper(left(replace(postal_code, ' ', ''), 3)) as fsa, count(distinct lower(email))::int as n
-          from campaign_signatures where campaign in (${PLEDGE_CAMPAIGN}, ${PETITION_CAMPAIGN}) group by 1, 2, 3`,
-    ),
+  const [eventRows, openingRows, updateRows] = await Promise.all([
     db
       .select({ slug: events.slug, title: events.title, startsAt: events.startsAt, location: events.location, neighbourhood: events.neighbourhood })
       .from(events)
@@ -88,31 +63,16 @@ async function loadHomeLive(area: Area | null): Promise<HomeLive> {
     if (scheduled) nextShift = { kind: "scheduled", ...scheduled };
   }
 
-  const byNeighbourhood = Object.fromEntries(NEIGHBOURHOODS.map((n) => [n, { pledge: 0, petition: 0 }])) as Record<Area, AreaCounts>;
-  for (const row of areaRows) {
-    const where = parseArea(row.neighbourhood) ?? parseArea(neighbourhoodForPostalCode(row.fsa));
-    if (!where) continue;
-    byNeighbourhood[where][row.campaign === PLEDGE_CAMPAIGN ? "pledge" : "petition"] += row.n;
-  }
-  const signers = (slug: string) => signerRows.find((r) => r.campaign === slug)?.n ?? 0;
-
   return {
-    members: memberRows[0]?.n ?? 0,
-    pledgeSigners: signers(PLEDGE_CAMPAIGN),
-    petitionSigners: signers(PETITION_CAMPAIGN),
     nextEvents: eventRows.map((e) => ({ ...e, startsAt: e.startsAt.toISOString() })),
     nextShift,
     trackerUpdates: updateRows,
-    byNeighbourhood,
-    local: area ? { area, counts: byNeighbourhood[area] } : null,
   };
 }
 
 /**
- * The numbers and next steps for the home page's "Act now" rail. Cached for
- * five minutes and dropped early when counters, events or the tracker change.
- * The visitor's area is an argument (never read from cookies in here), so each
- * area has its own entry.
+ * The next steps for the home page's "Act now" rail. Cached for five minutes
+ * and dropped early when events, shifts or the tracker change.
  */
 export const homeLive = unstable_cache(loadHomeLive, ["home-live"], {
   tags: [TAGS.counters, TAGS.events, TAGS.tracker],

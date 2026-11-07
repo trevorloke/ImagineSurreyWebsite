@@ -144,7 +144,8 @@ ok(text.includes("E2E Door-knocking in Newton"), "/neighbourhoods/newton shows t
 ok(text.includes("E2E Newton neighbourhood social"), "/neighbourhoods/newton shows the Newton event");
 ok(text.includes("City-wide events") && text.includes("E2E Tiny town hall"), "city-wide events listed separately");
 ok((await page.locator('a[href="/?neighbourhood=Newton#join"]').count()) >= 1, "join CTA carries the neighbourhood in the query, before the fragment");
-ok(text.includes("Be one of the first"), "counters under ten say be one of the first");
+ok(!text.includes("Be one of the first") && (await page.locator(".counters, .counter-value").count()) === 0 && !/members in Newton|residents signed/.test(text), "the neighbourhood page shows no member or signer counts");
+ok((await page.locator('.hood-asks a[href="/#skytrain"]').count()) === 1, "it still asks people to sign the active petitions");
 ok(await page.locator(".share-button").first().evaluate((el) => el.classList.contains("share-button--whatsapp")), "neighbourhood page has share buttons, WhatsApp first");
 ok((await fetch(`${BASE}/neighbourhoods/langley`)).status === 404, "unknown neighbourhood is a 404");
 

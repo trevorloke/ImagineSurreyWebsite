@@ -93,37 +93,6 @@
   gap: 6px;
   white-space: nowrap;
 }
-.nav-compact {
-  display: none;
-}
-.signin-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  color: var(--navy);
-}
-.signin-icon:hover {
-  background: var(--outline-hover);
-}
-.signin-icon svg {
-  width: 26px;
-  height: 26px;
-}
-@media (max-width: 1180px) {
-  .nav-compact {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: auto;
-  }
-  .nav-links .nav-signin {
-    display: none;
-  }
-}
-
 /* ── Hero headline ──────────────────────────────────────────────────── */
 
 .hero-headline {
@@ -177,43 +146,23 @@
   letter-spacing: 0.025em;
   color: var(--navy);
 }
-.rail-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.rail-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 20px 22px 8px;
-  border-radius: var(--radius);
-  background: var(--navy);
-  color: #fff;
-}
-.rail-number {
-  font-weight: 900;
-  font-size: clamp(40px, 5vw, 60px);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--yellow);
-}
-.rail-label {
-  font-size: 16px;
+/* "What's on near you": the neighbourhood pages and their postal-code finder. */
+.area-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 2px solid var(--navy);
+  background: #fff;
+  color: var(--navy);
+  font-size: 15px;
   font-weight: 600;
-  line-height: 1.4;
-  color: var(--pale-blue);
+  text-decoration: none;
 }
-.rail-link {
-  color: #fff;
-  text-underline-offset: 4px;
-}
-.rail-link:hover {
-  color: var(--yellow);
+.area-link:hover {
+  background: var(--outline-hover);
 }
 .rail-grid {
   display: grid;
@@ -291,106 +240,6 @@
 .status-stamp {
   gap: 6px;
 }
-.local-block {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px 28px;
-  padding: 20px 24px;
-  border-radius: var(--radius);
-  background: var(--yellow-pale);
-  border-left: 6px solid var(--yellow);
-}
-.local-name {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 900;
-  color: var(--navy);
-}
-.local-counts {
-  flex: 1 1 280px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.45;
-  color: var(--ink);
-}
-
-/* "Your area" chip */
-.your-surrey {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  max-width: 100%;
-}
-.area-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 999px;
-  border: 2px solid var(--navy);
-  background: #fff;
-  color: var(--navy);
-  font-family: var(--font);
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.area-chip:hover,
-.area-chip[aria-expanded="true"] {
-  background: var(--outline-hover);
-}
-.area-chip-caret {
-  font-size: 13px;
-}
-.area-panel {
-  width: min(380px, 100%);
-  padding: 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: #fff;
-  box-shadow: 0 12px 24px rgba(0, 20, 50, 0.12);
-}
-.area-panel[hidden] {
-  display: none;
-}
-.area-form {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-.area-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-}
-.area-row .input {
-  flex: 1 1 140px;
-  min-width: 0;
-  text-transform: uppercase;
-}
-.area-form .field-error,
-.area-form .hint {
-  margin: 0;
-}
-@media (max-width: 640px) {
-  .your-surrey {
-    align-items: flex-start;
-    width: 100%;
-  }
-}
-
 /* ── Mobile action bar ──────────────────────────────────────────────── */
 
 .sticky-actions,
@@ -572,22 +421,4 @@ ul.socials {
   min-height: 1.4em;
   font-size: 14px;
   color: var(--muted);
-}
-
-/* Phones: number beside its label, so the three numbers fit on one screen. */
-@media (max-width: 640px) {
-  .rail-stat {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    column-gap: 16px;
-    padding: 14px 18px 4px;
-  }
-  .rail-stat .rail-number {
-    grid-row: span 2;
-    min-width: 2ch;
-  }
-  .rail-stat .rail-link {
-    min-height: 40px;
-  }
 }

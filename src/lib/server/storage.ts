@@ -7,12 +7,22 @@ import { env } from "@/lib/env";
 /**
  * Where uploaded images live. With SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
  * set, files go to a public Supabase Storage bucket (SUPABASE_MEDIA_BUCKET,
- * default "site-media"); otherwise, in development, to public/uploads.
+ * default "site-media"); otherwise, on a machine that keeps its disk (a
+ * laptop, a server of your own), to public/uploads. Vercel's disk is
+ * read-only and Render wipes its disk on every deploy and restart, so there
+ * local uploads are refused instead of disappearing later.
  */
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg", "application/pdf": "pdf" };
 
 export class StorageError extends Error {}
+
+/** Why uploads can't be saved to this machine's disk, naming what to set; null when they can (or Supabase is set). */
+export function localUploadProblem(host: "Vercel" | "Render" | null = env.ephemeralDiskHost, storageEnabled = env.storageEnabled): string | null {
+  if (storageEnabled || !host) return null;
+  const why = host === "Render" ? "Render wipes this server's disk on every deploy and restart, so an uploaded file would disappear" : "Vercel's disk is read-only";
+  return `Uploads need Supabase Storage here: ${why}. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (and SUPABASE_MEDIA_BUCKET if the public bucket isn't named site-media), then redeploy.`;
+}
 
 export async function storeFile(bytes: Uint8Array, filename: string, mime: string): Promise<{ url: string; path: string }> {
   const ext = ALLOWED_IMAGE_TYPES[mime];
@@ -40,7 +50,8 @@ export async function storeFile(bytes: Uint8Array, filename: string, mime: strin
     return { url: `${env.supabaseUrl}/storage/v1/object/public/${env.mediaBucket}/${key}`, path: key };
   }
 
-  if (process.env.VERCEL) throw new StorageError("Uploads need Supabase Storage: set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and create a public bucket named site-media.");
+  const problem = localUploadProblem();
+  if (problem) throw new StorageError(problem);
   const dir = path.join(process.cwd(), "public", "uploads", path.dirname(key));
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(process.cwd(), "public", "uploads", key), bytes);

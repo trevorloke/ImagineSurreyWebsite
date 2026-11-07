@@ -165,25 +165,12 @@ ok(new URL(r.headers.get("location") ?? "", BASE).href === `${BASE}/`, "an off-s
 r = await fetch(BASE + "/r/NOPE2345", { redirect: "manual" });
 ok([302, 307].includes(r.status) && new URL(r.headers.get("location") ?? "", BASE).href === `${BASE}/` && !r.headers.get("set-cookie"), "unknown code redirects home without a cookie");
 
-// ── Counters ──────────────────────────────────────────────────────────────
+// ── No public counters ────────────────────────────────────────────────────
+// The numbers are in the admin only; the feed and the page are retired.
 r = await fetch(BASE + "/api/stats");
-const stats = await r.json();
-const expected = (
-  await sql`select
-    (select count(distinct person_id) from memberships where status = 'active' and (expires_at is null or expires_at > now()))::int as members,
-    (select count(distinct lower(email)) from campaign_signatures where campaign = 'stop-mccallum-pledge')::int as pledge,
-    (select count(distinct lower(email)) from campaign_signatures where campaign = 'skytrain-south-surrey')::int as petition,
-    (select count(*) from newsletter_subscribers where status = 'subscribed')::int as newsletter,
-    (select count(distinct person_id) from recurring_donations where status = 'active')::int as monthly`
-)[0];
-ok(r.status === 200 && (r.headers.get("cache-control") ?? "").includes("max-age=300"), "stats JSON is cacheable for five minutes");
-ok(stats.members === expected.members && stats.pledge === expected.pledge && stats.petition === expected.petition && stats.newsletter === expected.newsletter && stats.monthlyDonors === expected.monthly, `counts match SQL (members ${stats.members}, pledge ${stats.pledge}, petition ${stats.petition})`);
-ok(typeof stats.method === "string" && stats.method.includes("distinct") && typeof stats.generatedAt === "string", "the counting method is published with the numbers");
-ok(stats.shiftsThisWeek >= 0 && typeof stats.volunteers === "number" && stats.week?.start < stats.week?.end, "shifts this week and volunteers are numbers for a real week");
-const pledge = stats.campaigns.find((c) => c.slug === "stop-mccallum-pledge");
-ok(pledge && pledge.goal === 1000 && pledge.milestone === 1000 && pledge.byTownCentre.Newton?.suppressed === true && pledge.byTownCentre.Whalley?.suppressed === true, "town centres with under 10 signers are suppressed, goal from the campaigns table");
-const statsPage = await html(await fetch(BASE + "/stats"));
-ok(statsPage.includes("How we count") && statsPage.includes("under 10") && statsPage.includes('role="progressbar"') && (statsPage.match(/<h1/g) ?? []).length === 1, "/stats page has the method, suppressed cells, a goal bar and one h1");
+ok(r.status === 404, "the public stats feed is gone");
+r = await fetch(BASE + "/stats", { redirect: "manual" });
+ok([301, 308].includes(r.status) && new URL(r.headers.get("location") ?? "", BASE).pathname === "/", `/stats redirects permanently to the home page (${r.status})`);
 
 // ── In a browser ──────────────────────────────────────────────────────────
 const browser = await chromium.launch();
@@ -271,7 +258,7 @@ await page.waitForURL(/\/me\/login/);
 ok(page.url().includes("/me/login"), "sign out clears the session");
 
 await page.goto(BASE + "/stats");
-ok((await page.locator(".counter").count()) >= 7 && (await page.locator('table th[scope="row"]').count()) === 7, "stats page renders seven counters and the town-centre table");
+ok(new URL(page.url()).pathname === "/" && (await page.locator(".counter, .stats-table").count()) === 0, "the retired /stats page lands on the home page, with no counters");
 await browser.close();
 
 await finish();

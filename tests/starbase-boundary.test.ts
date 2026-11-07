@@ -1,8 +1,13 @@
-// What never goes to Starbase ("the desk"): donations, monthly gifts, shop
-// orders, event RSVPs, promise-tracker follows, preference changes and
-// anything done in /admin. Gifts are logged at the desk by the treasurer,
-// where the contribution limits are checked. This test reads the import graph
-// of each of those code paths and fails if one of them can reach the outbox.
+// What reaches Starbase ("the desk"), and from where. Sign-up forms forward
+// the person; an RSVP, a paid shop order and a confirmed promise follow
+// forward a tag only; a withdrawal (unsubscribe, STOP, preference change,
+// deletion) goes to the consent endpoint; a supporter's own portal edit
+// forwards their details. Money never does: donations, monthly gifts, fees,
+// order totals and items, and gift amounts are logged at the desk by the
+// treasurer, where the contribution limits are checked. Admin edits to a
+// supporter never do either, and a withdrawal that came from Starbase is never
+// sent back. This test reads the import graph of each code path and fails if
+// one of them can reach the outbox through anything but its own forward.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -80,12 +85,27 @@ function reachesStarbase(entry: string, allowed: Allowance): string[] | null {
 
 const only = (names: string[] | "*", allowedNames: string[]) => names !== "*" && names.every((n) => allowedNames.includes(n));
 
-// Payments and the Stripe webhook handle donations, monthly gifts and orders
-// too; the one thing they may forward is a membership that became active.
-const membershipOnly: Allowance = (from, edge) =>
-  edge.target === FORWARD && [src("lib/server/payments.ts"), src("lib/server/webhooks.ts")].includes(from) && only(edge.names, ["forwardMembership"]);
+/** The modules that forward something, and the only forwards each may call. */
+const FORWARDS: Record<string, string[]> = {
+  // A membership that became active (never the fee).
+  "lib/server/payments.ts": ["forwardMembership"],
+  // ...and, after the webhook commits, the "Bought merch" tag for a paid order.
+  "lib/server/webhooks.ts": ["forwardMembership", "forwardOrder"],
+  // Engagement tags.
+  "app/api/events/[slug]/rsvp/route.ts": ["forwardRsvp"],
+  "lib/server/tracker.ts": ["forwardFollow"],
+  // Withdrawals, and the supporter's own edits in the portal.
+  "lib/server/newsletter.ts": ["forwardConsentWithdrawal"],
+  "lib/server/comms.ts": ["forwardConsentWithdrawal"],
+  "lib/server/supporters.ts": ["forwardConsentWithdrawal"],
+  "app/api/preferences/route.ts": ["forwardConsentWithdrawal"],
+  "app/me/(portal)/preferences/actions.ts": ["forwardConsentWithdrawal", "forwardPortalEdit"],
+};
+const designated: Allowance = (from, edge) => edge.target === FORWARD && only(edge.names, FORWARDS[path.relative(src(""), from)] ?? []);
 
-const NEVER_FORWARDED = [
+// Money paths, engagement paths and consent paths: each may reach the outbox
+// only through the forwards listed above for the module that calls them.
+const DESIGNATED_ONLY = [
   "app/api/donations/checkout/route.ts",
   "app/api/shop/checkout/route.ts",
   "app/api/stripe/webhook/route.ts",
@@ -97,6 +117,7 @@ const NEVER_FORWARDED = [
   "app/api/preferences/request/route.ts",
   "app/api/newsletter/unsubscribe/route.ts",
   "app/api/newsletter/unfollow/route.ts",
+  "app/api/sms/inbound/route.ts",
   "app/me/(portal)/preferences/actions.ts",
 ];
 
@@ -107,30 +128,57 @@ function walk(dir: string): string[] {
   });
 }
 
-describe("what is never forwarded to Starbase", () => {
-  it.each(NEVER_FORWARDED)("%s cannot reach the outbox", (file) => {
+describe("what is forwarded to Starbase, and from where", () => {
+  it.each(DESIGNATED_ONLY)("%s reaches the outbox only through its own forwards", (file) => {
     const entry = src(file);
     expect(existsSync(entry), `${file} exists`).toBe(true);
-    expect(reachesStarbase(entry, membershipOnly)).toBeNull();
+    expect(reachesStarbase(entry, designated)).toBeNull();
   });
 
   it("nothing in the admin forwards a person; it may only read, deliver, retry or skip", () => {
-    // The outbox's own admin functions; never enqueueStarbase, never a forward*.
+    // The outbox's own admin functions; never enqueueStarbase, never a forward*
+    // except through the modules above (an anonymized supporter's withdrawal).
     const ADMIN_OUTBOX = ["deliverOutbox", "retryOutboxRow", "skipOutboxRow", "outboxStats", "listOutbox", "outboxForPerson", "parseOutboxFilters", "OUTBOX_KINDS", "OUTBOX_STATUSES", "OUTBOX_PAGE_SIZE"];
-    const ADMIN_CLIENT = ["ping", "starbaseUrlProblem"];
+    const ADMIN_CLIENT = ["ping", "starbaseUrlProblem", "NOT_SUPPORTED_YET"];
     const adminAllowed: Allowance = (from, edge) =>
-      membershipOnly(from, edge) || (edge.target === OUTBOX && only(edge.names, ADMIN_OUTBOX)) || (edge.target === STARBASE && only(edge.names, ADMIN_CLIENT));
+      designated(from, edge) || (edge.target === OUTBOX && only(edge.names, ADMIN_OUTBOX)) || (edge.target === STARBASE && only(edge.names, ADMIN_CLIENT));
     const files = [...walk(src("app/admin")), ...walk(src("app/api/admin")), ...walk(src("components/admin"))];
     expect(files.length).toBeGreaterThan(20);
     const leaks = files.map((f) => reachesStarbase(f, adminAllowed)).filter(Boolean);
     expect(leaks).toEqual([]);
   });
 
-  it("the import check sees a real forward (so the test above can fail)", () => {
-    expect(reachesStarbase(src("app/api/signatures/route.ts"), membershipOnly)).toEqual(["src/app/api/signatures/route.ts", "src/lib/server/starbase-forward.ts"]);
-    expect(reachesStarbase(src("app/api/volunteer/signup/route.ts"), membershipOnly)).not.toBeNull();
-    // The webhook may forward memberships, but not with anything else.
+  it("a withdrawal that came from Starbase is never sent back", () => {
+    // The inbound endpoint may read Starbase's channel and reason names, nothing else.
+    const constantsOnly: Allowance = (_from, edge) => edge.target === STARBASE && only(edge.names, ["CONSENT_CHANNELS", "CONSENT_REASONS"]);
+    expect(reachesStarbase(src("app/api/in/consent/route.ts"), constantsOnly)).toBeNull();
+  });
+
+  it("the forwards never read money", () => {
+    const forward = readFileSync(FORWARD, "utf8");
+    // The only tables they read: the membership snapshot, an order's buyer, and the person.
+    const schemaImport = /import\s*\{([^}]*)\}\s*from\s*"@\/lib\/db\/schema"/.exec(forward)?.[1] ?? "";
+    expect(schemaImport.split(",").map((s) => s.trim()).filter(Boolean).sort()).toEqual(["memberships", "orders", "people"]);
+    const orderForward = forward.slice(forward.indexOf("export async function forwardOrder"), forward.indexOf("export async function forwardFollow"));
+    expect(orderForward).toMatch(/columns: \{ email: true, personId: true, status: true \}/);
+    expect(orderForward).not.toMatch(/cents|amount|total|items|stripe/i);
+    const starbase = readFileSync(STARBASE, "utf8");
+    for (const builder of ["rsvpPerson", "orderPerson", "followPerson", "portalPerson", "consentPayload"]) {
+      const start = starbase.indexOf(`export function ${builder}(`);
+      expect(start, builder).toBeGreaterThan(0);
+      const signature = starbase.slice(start, starbase.indexOf("{\n", start));
+      expect(signature, builder).not.toMatch(/cents|amount|total|fee|stripe|guests|items/i);
+    }
+  });
+
+  it("the import check sees a real forward (so the tests above can fail)", () => {
+    expect(reachesStarbase(src("app/api/signatures/route.ts"), designated)).toEqual(["src/app/api/signatures/route.ts", "src/lib/server/starbase-forward.ts"]);
+    expect(reachesStarbase(src("app/api/volunteer/signup/route.ts"), designated)).not.toBeNull();
+    // The webhook may forward memberships and orders, but not with nothing allowed.
     const strict: Allowance = (from, edge) => edge.target === FORWARD && from === src("lib/server/webhooks.ts") && only(edge.names, []);
     expect(reachesStarbase(src("app/api/stripe/webhook/route.ts"), strict)).not.toBeNull();
+    // A module can't borrow another's forward: payments may not tag an order, a route may not forward a membership.
+    expect(designated(src("lib/server/payments.ts"), { target: FORWARD, names: ["forwardOrder"] })).toBe(false);
+    expect(designated(src("app/api/stripe/webhook/route.ts"), { target: FORWARD, names: ["forwardMembership"] })).toBe(false);
   });
 });

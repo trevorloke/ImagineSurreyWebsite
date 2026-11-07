@@ -80,11 +80,11 @@ describe("countdowns and overdue flags", () => {
   });
 
   it("takes the calendar date in Pacific time, across the day boundary", () => {
-    // 07:59 UTC on Feb 7 is still 23:59 on Feb 6 in Surrey (PST, UTC-8).
-    expect(dueInfoAt(helicopter, new Date("2027-02-07T07:59:00Z"))?.label).toBe("Due in 1 day");
-    expect(dueInfoAt(helicopter, new Date("2027-02-07T08:00:00Z"))?.label).toBe("Due today");
-    expect(dueInfoAt(helicopter, new Date("2027-02-08T07:59:59Z"))?.label).toBe("Due today");
-    expect(dueInfoAt(helicopter, new Date("2027-02-08T08:00:00Z"))?.label).toBe("1 day overdue");
+    // 06:59 UTC on Feb 7 is still 23:59 on Feb 6 in Surrey (BC's permanent UTC-7 from Nov 2026).
+    expect(dueInfoAt(helicopter, new Date("2027-02-07T06:59:00Z"))?.label).toBe("Due in 1 day");
+    expect(dueInfoAt(helicopter, new Date("2027-02-07T07:00:00Z"))?.label).toBe("Due today");
+    expect(dueInfoAt(helicopter, new Date("2027-02-08T06:59:59Z"))?.label).toBe("Due today");
+    expect(dueInfoAt(helicopter, new Date("2027-02-08T07:00:00Z"))?.label).toBe("1 day overdue");
   });
 
   it("uses the summer offset in July", () => {
@@ -105,7 +105,7 @@ describe("countdowns and overdue flags", () => {
   });
 
   it("stamps feed items at noon in Surrey", () => {
-    expect(noonInSurrey("2027-02-07").toISOString()).toBe("2027-02-07T20:00:00.000Z");
+    expect(noonInSurrey("2027-02-07").toISOString()).toBe("2027-02-07T19:00:00.000Z");
     expect(noonInSurrey("2026-07-22").toISOString()).toBe("2026-07-22T19:00:00.000Z");
   });
 });

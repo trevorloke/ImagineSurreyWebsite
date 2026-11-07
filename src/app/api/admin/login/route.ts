@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { redirectTo } from "@/lib/redirect";
-import { loginWithPassword, requestMeta, SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/admin-auth";
+import { loginWithPassword, PENDING_COOKIE, requestMeta, SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/admin-auth";
 import { safeNext } from "@/lib/server/admin-redirect";
 import { audit } from "@/lib/server/audit";
 
@@ -13,8 +13,14 @@ export async function POST(req: NextRequest) {
 
   if (!email || !password) return back("error=invalid");
   try {
-    const result = await loginWithPassword(email, password, requestMeta(req));
+    const result = await loginWithPassword(email, password, requestMeta(req), next);
     if (!result.ok) return back(`error=${result.reason}`);
+    if (result.ok === "second-step") {
+      // Two-factor sign-in is on: no session yet, a code first.
+      const res = redirectTo("/admin/login/verify", 303);
+      res.cookies.set(PENDING_COOKIE, result.pending.value, { ...sessionCookieOptions, maxAge: result.pending.maxAge });
+      return res;
+    }
 
     const res = redirectTo(next, 303);
     res.cookies.set(SESSION_COOKIE, result.cookie.value, { ...sessionCookieOptions, maxAge: result.cookie.maxAge });

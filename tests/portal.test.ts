@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LOCALE_IDS, LOCALES, mergeTracking, nextMilestone, pacificWeek, roomLeftCents, safeMemberNext } from "@/lib/engagement";
+import { LOCALE_IDS, LOCALES, mergeTracking, pacificWeek, roomLeftCents, safeMemberNext } from "@/lib/engagement";
 
 describe("safeMemberNext", () => {
   it("keeps relative paths on this site", () => {
@@ -23,24 +23,6 @@ describe("safeMemberNext", () => {
 
   it("uses the fallback given", () => {
     expect(safeMemberNext(null, "/")).toBe("/");
-  });
-});
-
-describe("nextMilestone", () => {
-  it("is the goal until the goal is reached", () => {
-    expect(nextMilestone(0, 1000)).toBe(1000);
-    expect(nextMilestone(999, 1000)).toBe(1000);
-  });
-  it("then the next multiple of 500 above the count, so the bar never reads done", () => {
-    expect(nextMilestone(1000, 1000)).toBe(1500);
-    expect(nextMilestone(1200, 1000)).toBe(1500);
-    expect(nextMilestone(1500, 1000)).toBe(2000);
-    expect(nextMilestone(2501, 2500)).toBe(3000);
-  });
-  it("works without a goal", () => {
-    expect(nextMilestone(0, null)).toBe(500);
-    expect(nextMilestone(499, undefined)).toBe(500);
-    expect(nextMilestone(500, null)).toBe(1000);
   });
 });
 
@@ -113,9 +95,13 @@ describe("startOfPacificDay", async () => {
     // 01:30 UTC on the 16th is still the evening of the 15th in Surrey.
     expect(startOfPacificDay(new Date("2026-07-16T01:30:00Z")).toISOString()).toBe("2026-07-15T07:00:00.000Z");
   });
-  it("is local midnight under standard time (UTC-8)", () => {
-    expect(startOfPacificDay(new Date("2026-12-01T20:00:00Z")).toISOString()).toBe("2026-12-01T08:00:00.000Z");
-    expect(startOfPacificDay(new Date("2026-12-02T07:59:00Z")).toISOString()).toBe("2026-12-01T08:00:00.000Z");
+  it("is local midnight under standard time (UTC-8), before BC's switch", () => {
+    expect(startOfPacificDay(new Date("2025-12-01T20:00:00Z")).toISOString()).toBe("2025-12-01T08:00:00.000Z");
+    expect(startOfPacificDay(new Date("2025-12-02T07:59:00Z")).toISOString()).toBe("2025-12-01T08:00:00.000Z");
+  });
+  it("is local midnight on BC's permanent UTC-7 from November 2026", () => {
+    expect(startOfPacificDay(new Date("2026-12-01T20:00:00Z")).toISOString()).toBe("2026-12-01T07:00:00.000Z");
+    expect(startOfPacificDay(new Date("2026-12-02T06:59:00Z")).toISOString()).toBe("2026-12-01T07:00:00.000Z");
   });
   it("handles the days the clocks change", () => {
     // 2026-03-08: midnight is still PST; 2026-11-01: midnight is still PDT.
