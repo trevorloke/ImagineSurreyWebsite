@@ -21,7 +21,7 @@ import { notifyDonationSucceeded, notifyMembershipActive, notifyOrderPaid, notif
 import { latestActiveMembershipExpiry } from "./payments";
 import { findOrCreatePerson } from "./people";
 import { getSettings } from "./settings";
-import { forwardMembership } from "./starbase-forward";
+import { forwardMembership, forwardOrder } from "./starbase-forward";
 import { issuePendingRefunds, reconcileRefunds } from "./stripe-refunds";
 
 type Tx = Querier;
@@ -503,6 +503,8 @@ async function notify(db: Db, effects: Effects) {
   if (effects.contributionIds.length) await run("Donation", () => notifyDonationSucceeded(db, { contributionIds: effects.contributionIds }));
   for (const recurringDonationId of effects.recurringIds) await run("Recurring gift", () => notifyRecurringStarted(db, { recurringDonationId }));
   for (const orderId of effects.orderIds) await run("Order", () => notifyOrderPaid(db, { orderId }));
+  // A paid order goes to the desk as the "Bought merch" tag only: never the total or the items.
+  for (const orderId of effects.orderIds) await forwardOrder(db, orderId);
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Email & texts admin: the campaign composer, the SMS composer and the log. */
+/* Email & texts admin: the email and text log. */
 
 .comms-head {
   display: flex;
@@ -11,108 +11,7 @@
   margin: 0;
   font-size: 30px;
 }
-.comms-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-left: auto;
-}
-.comms-toolbar .btn {
-  min-height: 40px;
-}
-
-/* Audience builder */
-.audience {
-  display: grid;
-  gap: 16px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.audience legend {
-  padding: 0;
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--navy);
-}
-.audience-lists {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 6px 20px;
-}
-.audience-lists .check {
-  min-height: 44px;
-  align-items: center;
-}
-.audience-lists .check small {
-  display: block;
-  color: var(--muted);
-  font-size: 13px;
-}
-.audience-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px 16px;
-}
-.audience-count {
-  margin: 0;
-  font-size: 17px;
-  color: var(--ink);
-}
-.audience-count strong {
-  font-size: 22px;
-  color: var(--navy);
-}
-
-/* Composer */
-.composer {
-  display: grid;
-  gap: 18px;
-}
-.composer textarea.input {
-  min-height: 280px;
-  padding: 14px;
-  line-height: 1.5;
-  resize: vertical;
-}
-.merge-fields {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
-  font-size: 14px;
-  color: var(--muted);
-}
-.merge-fields code {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--pale-blue);
-  color: var(--navy);
-  font-weight: 700;
-}
-.sms-counter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin: 0;
-  font-size: 14px;
-  color: var(--muted);
-}
-.sms-counter .is-warning {
-  color: var(--red-hover);
-  font-weight: 700;
-}
-.email-preview {
-  width: 100%;
-  min-height: 620px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-}
-
-/* Status badges for campaigns and log rows */
+/* Status badges for log rows and earlier campaigns */
 .msg-status {
   display: inline-flex;
   align-items: center;
@@ -143,28 +42,6 @@
 .msg-status--skipped {
   background: var(--pale-blue);
   color: var(--navy);
-}
-
-/* Campaign progress */
-.progress-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-  margin: 0;
-  font-size: 15px;
-}
-.progress-row dt {
-  color: var(--muted);
-}
-.progress-row dd {
-  margin: 0;
-  font-weight: 800;
-  color: var(--navy);
-}
-.progress-row div {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
 }
 
 /* Log */
@@ -204,11 +81,5 @@
 @media (max-width: 600px) {
   .comms-head h1 {
     font-size: 24px;
-  }
-  .comms-toolbar {
-    margin-left: 0;
-  }
-  .audience {
-    padding: 14px;
   }
 }

@@ -6,7 +6,8 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireAdmin } from "@/lib/server/admin-auth";
 import { integrationStats } from "@/lib/server/content-admin";
-import { starbaseUrlProblem } from "@/lib/server/starbase";
+import { NOT_SUPPORTED_YET, starbaseUrlProblem } from "@/lib/server/starbase";
+import { localUploadProblem } from "@/lib/server/storage";
 import { outboxStats } from "@/lib/server/starbase-outbox";
 
 type Tone = "ok" | "warn" | "off" | "bad";
@@ -63,9 +64,12 @@ export default async function IntegrationsPage() {
   } catch {
     webhookSet = false;
   }
-  // Vercel's filesystem is read-only, so uploads there need Supabase Storage.
-  // The flag is read here for the warning only; storage.ts checks it the same way.
-  const onVercel = Boolean(process.env.VERCEL);
+  // Vercel's filesystem is read-only and Render's is wiped on every deploy, so
+  // uploads there need Supabase Storage; storage.ts refuses them the same way.
+  const diskHost = env.ephemeralDiskHost;
+  const uploadProblem = localUploadProblem();
+  // A live host (Vercel or Render) needs the scheduled jobs and the human check.
+  const hosted = diskHost !== null;
   const analytics = env.plausibleDomain ? `Plausible (${env.plausibleDomain})` : env.gaMeasurementId ? `Google Analytics (${env.gaMeasurementId})` : null;
   const queueStale = stats.email.oldestQueuedAt ? Date.now() - stats.email.oldestQueuedAt.getTime() > 10 * 60_000 : false;
 
@@ -73,6 +77,7 @@ export default async function IntegrationsPage() {
   const starbaseOn = env.starbaseEnabled;
   const starbaseUrlIssue = starbaseOn ? starbaseUrlProblem(env.starbaseUrl) : null;
   const deskError = desk.lastError;
+  const inboundOn = Boolean(env.starbaseInboundKey);
   const keyRefused = Boolean(deskError && desk.counts.pending > 0 && /^(401|403|404):/.test(deskError.message));
   const starbaseTone: Tone = !starbaseOn ? "off" : starbaseUrlIssue || keyRefused ? "bad" : desk.counts.failed > 0 || (deskError && desk.counts.pending > 0) ? "warn" : "ok";
   const humanKeys = [env.turnstileSiteKey, env.turnstileSecretKey].filter(Boolean).length;
@@ -119,15 +124,18 @@ export default async function IntegrationsPage() {
         </Card>
         <Card
           title="Image storage"
-          tone={env.storageEnabled ? "ok" : onVercel ? "bad" : "warn"}
+          tone={env.storageEnabled ? "ok" : uploadProblem ? "bad" : "warn"}
           rows={[
-            ["Provider", env.storageEnabled ? `Supabase Storage, bucket "${env.mediaBucket}"` : onVercel ? "Not configured: uploads fail on Vercel" : "Not configured: uploads go to public/uploads on this machine"],
+            [
+              "Provider",
+              env.storageEnabled ? `Supabase Storage, bucket "${env.mediaBucket}"` : diskHost ? `Not configured: uploads are refused on ${diskHost}` : "Not configured: uploads go to public/uploads on this machine",
+            ],
           ]}
           env={["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_MEDIA_BUCKET"]}
         >
-          {!env.storageEnabled && onVercel && (
+          {uploadProblem && (
             <p className="small" style={{ color: "var(--red-hover)", fontWeight: 700 }}>
-              This deployment runs on Vercel without Supabase Storage, so the media library can't accept uploads. Create a public bucket and set the variables.
+              {uploadProblem} Create a public bucket in Supabase first.
             </p>
           )}
         </Card>
@@ -142,6 +150,19 @@ export default async function IntegrationsPage() {
             ["Refused by Starbase", String(desk.counts.failed)],
             ["Skipped", String(desk.counts.skipped)],
             [
+              "Unsubscribes and STOPs to Starbase",
+              desk.consent.notSupported > 0 ? (
+                <span style={{ fontWeight: 700 }}>
+                  {desk.consent.notSupported} waiting: {NOT_SUPPORTED_YET.toLowerCase()} (this Starbase has no /in/v1/consent). They go once it does.
+                </span>
+              ) : desk.consent.pending > 0 ? (
+                `${desk.consent.pending} waiting, ${desk.consent.sent} sent`
+              ) : (
+                `${desk.consent.sent} sent`
+              ),
+            ],
+            ["Unsubscribes from Starbase", inboundOn ? "On: Starbase can withdraw consent here (POST /api/in/consent)" : "Off: STARBASE_INBOUND_KEY isn't set"],
+            [
               "Last problem",
               deskError ? (
                 <span style={keyRefused ? { color: "var(--red-hover)", fontWeight: 700 } : undefined}>
@@ -152,11 +173,12 @@ export default async function IntegrationsPage() {
               ),
             ],
           ]}
-          env={["STARBASE_URL", "STARBASE_KEY"]}
+          env={["STARBASE_URL", "STARBASE_KEY", "STARBASE_INBOUND_KEY"]}
         >
           <p className="small">
-            New sign-ups (petitions, pledges, the newsletter, volunteer shifts, memberships, deletion requests) are sent from this server. Donations, RSVPs, orders and follows
-            never are. <Link href="/admin/integrations/starbase">See everything sent</Link>
+            New sign-ups (petitions, pledges, the newsletter, volunteer shifts, memberships, deletion requests), edits in the supporter portal, and tags for RSVPs, paid
+            orders and promise follows are sent from this server, and so is every unsubscribe and text STOP. Money never is: no donation, fee or order amount.{" "}
+            <Link href="/admin/integrations/starbase">See everything sent</Link>
             {" · "}
             <Link href="/admin/desk-gifts">Gifts to log at the desk</Link>
           </p>
@@ -164,7 +186,7 @@ export default async function IntegrationsPage() {
         </Card>
         <Card
           title="Human check (Cloudflare Turnstile)"
-          tone={env.humanCheckEnabled ? "ok" : onVercel ? "bad" : "warn"}
+          tone={env.humanCheckEnabled ? "ok" : hosted ? "bad" : "warn"}
           rows={[
             [
               "Status",
@@ -188,9 +210,9 @@ export default async function IntegrationsPage() {
         <Card title="Analytics" tone={analytics ? "ok" : "off"} rows={[["Service", analytics ?? "None"]]} env={["NEXT_PUBLIC_PLAUSIBLE_DOMAIN", "NEXT_PUBLIC_GA_MEASUREMENT_ID"]} />
         <Card
           title="Scheduled jobs"
-          tone={!env.cronSecret ? (onVercel ? "bad" : "warn") : queueStale ? "warn" : "ok"}
+          tone={!env.cronSecret ? (hosted ? "bad" : "warn") : queueStale ? "warn" : "ok"}
           rows={[
-            ["Cron secret", env.cronSecret ? "Set" : onVercel ? "Missing: the cron job can't run" : "Not set (fine locally)"],
+            ["Cron secret", env.cronSecret ? "Set" : hosted ? "Missing: set it for the daily jobs" : "Not set (fine locally)"],
             ["Email job last sent", when(stats.email.lastCronAt)],
             ["Oldest queued email", stats.email.oldestQueuedAt ? `${when(stats.email.oldestQueuedAt)}${queueStale ? " (waiting too long: is the cron job running?)" : ""}` : "nothing waiting"],
           ]}

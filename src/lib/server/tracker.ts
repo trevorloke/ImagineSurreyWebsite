@@ -1,6 +1,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { after } from "next/server";
 import { getDb, type Db } from "@/lib/db";
@@ -13,6 +13,7 @@ import { cached, TAGS } from "./cache";
 import { sendEmail } from "./email";
 import { notifyPromiseStatusChanged } from "./notifications";
 import { findOrCreatePerson } from "./people";
+import { forwardFollow } from "./starbase-forward";
 import { consumeToken, createToken, tokenUrl } from "./tokens";
 
 // ── Loaders ────────────────────────────────────────────────────────────────
@@ -199,7 +200,10 @@ export async function followPromise(db: Db, input: { promise: { id: string; numb
   const follow = inserted ?? (await db.query.promiseFollows.findFirst({ where: and(eq(promiseFollows.promiseId, input.promise.id), eq(promiseFollows.email, address)) }));
   if (!follow) throw new Error("Could not record the follow.");
   if (confirmNow) {
+    // A new follow is inserted already confirmed; an older pending one is confirmed now. Either is new to the desk.
+    const newlyConfirmed = Boolean(inserted) || !follow.confirmedAt;
     if (!follow.confirmedAt) await db.update(promiseFollows).set({ confirmedAt: new Date() }).where(eq(promiseFollows.id, follow.id));
+    if (newlyConfirmed) await forwardFollow(db, { personId: person.id, email: address, number: input.promise.number });
     return { status: "confirmed" };
   }
   // Already confirmed: nothing to send, and the same answer as a new follow.
@@ -217,19 +221,26 @@ export async function followPromise(db: Db, input: { promise: { id: string; numb
   return { status: "pending" };
 }
 
-/** Redeem a confirmation link. Returns the promise number to send the person back to. */
+/**
+ * Redeem a confirmation link. Returns the promise number to send the person
+ * back to. The first confirmation goes to the desk as a "Follows: promise
+ * <n>" tag.
+ */
 export async function confirmFollow(db: Db, raw: string): Promise<{ ok: true; number: number } | { ok: false }> {
   const token = await consumeToken(db, "promise-follow", raw);
   const followId = token?.data && typeof token.data.followId === "string" ? token.data.followId : null;
   if (!followId) return { ok: false };
-  const [row] = await db
+  const [newly] = await db
     .update(promiseFollows)
-    .set({ confirmedAt: sql`coalesce(${promiseFollows.confirmedAt}, now())` })
-    .where(eq(promiseFollows.id, followId))
-    .returning({ promiseId: promiseFollows.promiseId });
+    .set({ confirmedAt: sql`now()` })
+    .where(and(eq(promiseFollows.id, followId), isNull(promiseFollows.confirmedAt)))
+    .returning({ promiseId: promiseFollows.promiseId, email: promiseFollows.email, personId: promiseFollows.personId });
+  const row = newly ?? (await db.query.promiseFollows.findFirst({ where: eq(promiseFollows.id, followId), columns: { promiseId: true } }));
   if (!row) return { ok: false };
   const promise = await db.query.trackerPromises.findFirst({ where: eq(trackerPromises.id, row.promiseId), columns: { number: true } });
-  return promise ? { ok: true, number: promise.number } : { ok: false };
+  if (!promise) return { ok: false };
+  if (newly) await forwardFollow(db, { personId: newly.personId, email: newly.email, number: promise.number });
+  return { ok: true, number: promise.number };
 }
 
 export const statusLabel = (status: PromiseStatus) => STATUS_BY_ID[status].label;

@@ -37,6 +37,8 @@ const env = {
   // starts a second server with it on, against the fake siteverify.
   STARBASE_URL: `http://localhost:${stripePort}`,
   STARBASE_KEY: "sbk_e2eTestKey0123456789abcdefABCDEF",
+  // The key the desk suite sends to POST /api/in/consent, as Starbase would.
+  STARBASE_INBOUND_KEY: "e2e-inbound-key-0123456789abcdefABCDEF",
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
   TURNSTILE_SECRET_KEY: "",
   TURNSTILE_VERIFY_URL: "",

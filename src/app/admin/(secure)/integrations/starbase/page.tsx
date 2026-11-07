@@ -2,7 +2,7 @@ import Link from "next/link";
 import { OutboxRowActions } from "@/components/admin/content/IntegrationTests";
 import { getDb } from "@/lib/db";
 import { can, requireAdmin } from "@/lib/server/admin-auth";
-import { listOutbox, OUTBOX_KINDS, OUTBOX_PAGE_SIZE, OUTBOX_STATUSES, parseOutboxFilters, type OutboxFilters } from "@/lib/server/starbase-outbox";
+import { listOutbox, OUTBOX_KINDS, OUTBOX_PAGE_SIZE, OUTBOX_STATUSES, outboxStats, parseOutboxFilters, type OutboxFilters } from "@/lib/server/starbase-outbox";
 import "../../people/people.css";
 
 const WHEN = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -18,11 +18,19 @@ function href(f: OutboxFilters, page: number): string {
   return s ? `/admin/integrations/starbase?${s}` : "/admin/integrations/starbase";
 }
 
+/** Who a row is about when it isn't linked to a supporter here (a text STOP from an unknown number). */
+function payloadContact(payload: Record<string, unknown>): string {
+  const v = payload.email ?? payload.phone;
+  return typeof v === "string" && v ? v : "—";
+}
+
 /** Everything the website has queued for Starbase, newest first, with Retry and Skip. */
 export default async function StarbaseOutboxPage({ searchParams }: PageProps<"/admin/integrations/starbase">) {
   const user = await requireAdmin("integrations");
   const filters = parseOutboxFilters(await searchParams);
-  const { rows, total } = await listOutbox(getDb(), filters);
+  const db = getDb();
+  const [{ rows, total }, stats] = await Promise.all([listOutbox(db, filters), outboxStats(db)]);
+  const notSupported = stats.consent.notSupported;
   const pages = Math.max(1, Math.ceil(total / OUTBOX_PAGE_SIZE));
   const page = Math.min(filters.page, pages);
   const people = can(user, "people");
@@ -38,9 +46,17 @@ export default async function StarbaseOutboxPage({ searchParams }: PageProps<"/a
         </div>
       </div>
       <p style={{ maxWidth: 760 }}>
-        Each row is one sign-up the website forwarded, and exactly what was sent. Its id is the Idempotency-Key, so sending it again never makes a second person in Starbase.
-        Waiting rows are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, then every 12 hours, and marked refused after 8 attempts.
+        Each row is one sign-up, portal edit, tag or consent withdrawal the website forwarded, and exactly what was sent. Its id is the Idempotency-Key, so sending it again
+        never makes a second person in Starbase. Waiting rows are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, then every 12 hours, and marked refused after 8
+        attempts.
       </p>
+      {notSupported > 0 && (
+        <p className="alert alert--note" role="note" style={{ maxWidth: 760 }}>
+          {notSupported} unsubscribe{notSupported === 1 ? "" : "s"} and STOP{notSupported === 1 ? "" : "s"} (kind “consent”) {notSupported === 1 ? "is" : "are"} waiting because
+          this Starbase doesn&apos;t take consent changes yet (it answers 404 at /in/v1/consent). {notSupported === 1 ? "It isn't" : "They aren't"} failed: each is tried again every
+          6 hours and with Send now, and goes once Starbase has the endpoint.
+        </p>
+      )}
 
       <form method="get" action="/admin/integrations/starbase" className="crm-filters" aria-label="Filter the outbox">
         <div className="field">
@@ -108,7 +124,7 @@ export default async function StarbaseOutboxPage({ searchParams }: PageProps<"/a
                   <td>{WHEN.format(r.createdAt)}</td>
                   <td>{r.kind}</td>
                   <td className="cell-wrap">
-                    {r.personId && people ? <Link href={`/admin/people/${r.personId}`}>{r.email ?? "supporter"}</Link> : (r.email ?? "—")}
+                    {r.personId && people ? <Link href={`/admin/people/${r.personId}`}>{r.email ?? "supporter"}</Link> : (r.email ?? payloadContact(r.payload))}
                     <details>
                       <summary className="small">What was sent</summary>
                       <pre className="details-json">{JSON.stringify(r.payload, null, 2)}</pre>

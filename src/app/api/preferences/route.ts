@@ -4,6 +4,7 @@ import { neighbourhoodForPostalCode, normalizePostalCode, OUTSIDE_SURREY } from 
 import { error, json, parseBody } from "@/lib/server/api";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
+import { forwardConsentWithdrawal } from "@/lib/server/starbase-forward";
 import { findPersonByEmail, updatePerson, type PersonFields } from "@/lib/server/people";
 import { consumeToken, createToken } from "@/lib/server/tokens";
 import { preferencesSchema } from "@/lib/validation";
@@ -13,7 +14,8 @@ const TTL_MINUTES = 60;
 /**
  * Save email and text preferences. The token proves control of the address
  * and is single use; the response carries a fresh one so the page can save
- * again. Every tick that changed is written to the consent ledger.
+ * again. Every tick that changed is written to the consent ledger, and a
+ * withdrawal is passed to Starbase.
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
         verified: true,
         ...meta,
       });
+      if (!data.updates) await forwardConsentWithdrawal(db, { personId: person.id, email: person.email, channel: "email", reason: "preference" });
     }
     if (data.sms !== hadSms) {
       await recordConsent(db, {
@@ -58,6 +61,7 @@ export async function POST(req: NextRequest) {
         verified: true,
         ...meta,
       });
+      if (!data.sms) await forwardConsentWithdrawal(db, { personId: person.id, email: person.email, phone: person.phone, channel: "sms", reason: "preference" });
     }
 
     const fields: PersonFields = {};

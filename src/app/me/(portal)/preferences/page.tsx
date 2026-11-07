@@ -16,6 +16,7 @@ export default async function Preferences() {
           firstName: person.firstName,
           lastName: person.lastName,
           phone: person.phone,
+          address: person.address,
           postalCode: person.postalCode,
           neighbourhood: person.neighbourhood,
           locale: person.locale,
