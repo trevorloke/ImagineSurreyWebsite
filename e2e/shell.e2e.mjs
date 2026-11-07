@@ -68,7 +68,9 @@ const browser = await chromium.launch();
   const nextTwo = (await sql`select slug from events where published and starts_at >= now() order by starts_at limit 2`).map((e) => e.slug);
   ok(nextTwo.length > 0 && (await Promise.all(nextTwo.map(async (slug) => (await page.locator(`#act-now a[href="/events/${slug}"]`).count()) === 1))).every(Boolean), `Next up links to the next upcoming events (${nextTwo.join(", ")})`);
   ok((await page.locator('#act-now a[href="/events/shell-hidden-event"]').count()) === 0, "unpublished events stay off the rail");
-  ok((await page.locator("#volunteer").textContent()).includes("Shell door-knock in Whalley"), "Next up shows the next published shift opening");
+  // Seeded sample openings can fall sooner than this suite's, depending on the day.
+  const [nextOpening] = await sql`select title from shift_openings where published and date >= (now() at time zone 'America/Vancouver')::date order by date, slot limit 1`;
+  ok(nextOpening && (await page.locator("#volunteer").textContent()).includes(nextOpening.title), `Next up shows the next published shift opening (${nextOpening?.title})`);
   ok((await page.locator('#volunteer a[href="/volunteer"]').count()) === 1, "the shift card links to /volunteer");
   const strip = page.locator(".tracker-strip li").first();
   ok((await strip.textContent()).includes(promise7.title) && (await strip.locator(".status-stamp svg").count()) === 1, "latest tracker update is listed with an icon status stamp");
@@ -100,23 +102,25 @@ const browser = await chromium.launch();
   ok((await page.locator('header a[href="/tracker"]').getAttribute("aria-current")) === null, "other links are not");
   await page.close();
 
-  for (const w of [1440, 1280, 1200]) {
+  // The title bar stays plain at every width: the logo, Donate and Menu.
+  for (const w of [1440, 1280, 1200, 400]) {
     const p = await browser.newPage({ viewport: { width: w, height: 800 } });
     await p.goto(BASE + "/");
-    const tops = await p.locator(".nav-links > *").evaluateAll((els) => els.filter((e) => getComputedStyle(e).display !== "none").map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)));
+    const bar = await p.locator(".nav-bar > *").evaluateAll((els) => els.filter((e) => getComputedStyle(e).display !== "none").map((e) => e.textContent.trim()));
     const h = await p.locator(".site-header").evaluate((e) => e.getBoundingClientRect().height);
-    ok(tops.length === 8 && Math.max(...tops) - Math.min(...tops) <= 2 && h < 110, `nav is one row with sign-in and Donate at ${w}px (${Math.round(h)}px tall)`);
-    ok(await p.locator(".nav-signin").isVisible(), `"Supporter sign-in" text is visible at ${w}px`);
+    ok(bar.length === 2 && bar[0] === "Donate" && bar[1].endsWith("Menu") && h < 110, `title bar is just the logo, Donate and Menu at ${w}px (${bar.join(" | ")}; ${Math.round(h)}px tall)`);
+    ok(!(await p.locator("#nav-links").isVisible()), `the full navigation waits behind Menu at ${w}px`);
     await p.close();
   }
 
   const mobile = await browser.newPage({ viewport: { width: 400, height: 800 } });
   await mobile.goto(BASE + "/");
   const toggle = mobile.locator(".menu-toggle");
-  ok((await mobile.locator('.signin-icon[aria-label="Supporter sign-in"]').isVisible()) && !(await mobile.locator(".nav-signin").isVisible()), "on a phone, sign-in is an icon with an accessible name");
+  ok(!(await mobile.locator(".nav-signin").isVisible()), "on a phone, sign-in waits in the menu");
   ok((await toggle.getAttribute("aria-expanded")) === "false" && (await toggle.getAttribute("aria-controls")) === "nav-links", "menu button starts collapsed and controls the menu");
   await toggle.click();
   ok((await toggle.getAttribute("aria-expanded")) === "true" && (await mobile.locator("#nav-links").isVisible()), "menu opens");
+  ok((await mobile.locator('#nav-links a[href="/me"]').isVisible()) && (await mobile.locator('#nav-links a[href="/tracker"]').isVisible()), "the menu holds Supporter sign-in and every section");
   await mobile.keyboard.press("Escape");
   ok((await toggle.getAttribute("aria-expanded")) === "false" && !(await mobile.locator("#nav-links").isVisible()), "Escape closes the menu");
   ok(await mobile.evaluate(() => document.activeElement?.classList.contains("menu-toggle")), "focus returns to the menu button");

@@ -3,6 +3,7 @@
 // the merged result through getSettings(). Adding a section means adding it
 // here; the admin form and the database row follow from the schema.
 import { z } from "zod";
+import { CUSTOM_TONES, DEFAULT_MODULES, MODULE_KINDS } from "@/lib/home-modules";
 import { board, committees, heroWords, memberBenefits, pillars, site, skytrainAsks, socials, stopItems } from "@/content/site";
 
 const text = (max: number) => z.string().trim().max(max);
@@ -10,6 +11,35 @@ const url = z.string().trim().max(500);
 const image = z.object({ url: url.optional().default(""), alt: text(300).optional().default("") });
 
 export const sections = {
+  header: {
+    label: "Title bar",
+    description: "The bar across the top of every page: the logo, up to three links, the Donate button and the Menu. Keep it short.",
+    schema: z.object({
+      links: z.array(z.object({ label: text(30), href: url })).max(3).default([]),
+      ctaLabel: text(30).default("Donate"),
+      ctaHref: url.default("/donate"),
+    }),
+  },
+  homeModules: {
+    label: "Home page modules",
+    description: "Which sections the home page shows, in what order, plus your own text blocks. Easiest to change in Admin → Home page.",
+    schema: z.object({
+      modules: z
+        .array(
+          z.object({
+            kind: z.enum(MODULE_KINDS),
+            enabled: z.boolean().default(true),
+            heading: text(120).default(""),
+            body: text(4000).default(""),
+            buttonLabel: text(40).default(""),
+            buttonHref: url.default(""),
+            tone: z.enum(CUSTOM_TONES).default("white"),
+          }),
+        )
+        .max(40)
+        .default(DEFAULT_MODULES),
+    }),
+  },
   org: {
     label: "Organization",
     description: "Name, contact details and links used across the site and in emails.",

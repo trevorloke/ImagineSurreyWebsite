@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { DonateWidget } from "@/components/forms/DonateWidget";
 import { MembershipForm } from "@/components/forms/MembershipForm";
@@ -15,6 +16,7 @@ import { StatusStamp } from "@/components/shell/StatusStamp";
 import { YourSurrey } from "@/components/shell/YourSurrey";
 import { dayAndMonth, formatDate, timeOnly } from "@/lib/dates";
 import { env } from "@/lib/env";
+import { normalizeModules, type BuiltInKind, type HomeModule } from "@/lib/home-modules";
 import { formatCents } from "@/lib/money";
 import { NEIGHBOURHOODS } from "@/lib/neighbourhoods";
 import { activeProducts, latestNews, upcomingEvents } from "@/lib/server/content";
@@ -51,9 +53,12 @@ export default async function Home() {
   const { org, hero, pillars, membership, stop, donate, skytrain, organize, board, committees, socials } = settings;
   const [nextEvent, ...moreEvents] = events;
 
-  return (
-    <>
-      {/* ── Hero ── */}
+  // Each built-in module, ready to place; Admin → Home page decides which
+  // show and in what order (settings.homeModules).
+  const blocks: Record<BuiltInKind, ReactNode> = {
+    // ── Hero ──
+    hero: (
+      <>
       <section id="top" className="section section--navy hero">
         <div className="container hero-inner">
           <div className="hero-copy">
@@ -75,11 +80,17 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Act now ── */}
+      </>
+    ),
+    // ── Act now ──
+    actNow: (
+      <>
       {live && <ActNow live={live} area={area} />}
-
-      {/* ── What we stand for ── */}
+      </>
+    ),
+    // ── What we stand for ──
+    pillars: (
+      <>
       <section id="stand" className="section">
         <div className="container stack" style={{ gap: 40 }}>
           <div className="intro">
@@ -113,8 +124,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── News ── */}
+      </>
+    ),
+    // ── News ──
+    news: (
+      <>
       <section id="news" className="section" style={{ paddingTop: 0 }}>
         <div className="container stack" style={{ gap: 32, paddingTop: 72, borderTop: "1px solid var(--line)" }}>
           <div className="section-head">
@@ -141,8 +155,11 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Become a member ── */}
+      </>
+    ),
+    // ── Become a member ──
+    join: (
+      <>
       <section id="join" className="section section--surface">
         <div className="container stack" style={{ gap: 48 }}>
           {membership.photo.url && (
@@ -177,8 +194,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Stop McCallum's chaos ── */}
+      </>
+    ),
+    // ── Stop McCallum's chaos ──
+    pledge: (
+      <>
       <section id="stop" className="section section--navy on-dark">
         <div className="container stack" style={{ gap: 40 }}>
           <div className="stop-head">
@@ -224,8 +244,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Chip in ── */}
+      </>
+    ),
+    // ── Chip in ──
+    donate: (
+      <>
       <section id="donate" className="section">
         <div className="container split">
           <div className="stack" style={{ flex: "1 1 320px", gap: 16 }}>
@@ -236,8 +259,11 @@ export default async function Home() {
           <DonateWidget limitCents={env.contributionLimitCents} />
         </div>
       </section>
-
-      {/* ── SkyTrain ── */}
+      </>
+    ),
+    // ── SkyTrain ──
+    skytrain: (
+      <>
       <section id="skytrain" className="section--navy-dark skytrain on-dark">
         <div className="skytrain-hero" style={skytrain.image.url ? { backgroundImage: `url(${JSON.stringify(skytrain.image.url)})` } : undefined}>
           <div className="container">
@@ -293,8 +319,11 @@ export default async function Home() {
           </div>
         )}
       </section>
-
-      {/* ── Organize ── */}
+      </>
+    ),
+    // ── Organize ──
+    organize: (
+      <>
       <section id="organize" className="section section--yellow organize">
         <div className="container" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "32px 48px" }}>
           <h2 className="display pop">
@@ -305,8 +334,11 @@ export default async function Home() {
           </SmartLink>
         </div>
       </section>
-
-      {/* ── Board ── */}
+      </>
+    ),
+    // ── Board ──
+    board: (
+      <>
       <section id="about" className="section section--surface">
         <div className="container stack" style={{ gap: 36 }}>
           <div className="intro" style={{ maxWidth: 720 }}>
@@ -346,8 +378,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Committees ── */}
+      </>
+    ),
+    // ── Committees ──
+    committees: (
+      <>
       <section id="committees" className="section">
         <div className="container stack" style={{ gap: 44 }}>
           <div className="intro" style={{ maxWidth: 720 }}>
@@ -396,8 +431,11 @@ export default async function Home() {
           </a>
         </div>
       </section>
-
-      {/* ── Events ── */}
+      </>
+    ),
+    // ── Events ──
+    events: (
+      <>
       <section id="events" className="section section--red on-dark">
         <div className="container stack" style={{ gap: 28 }}>
           <div className="section-head">
@@ -464,8 +502,11 @@ export default async function Home() {
           )}
         </div>
       </section>
-
-      {/* ── Shop ── */}
+      </>
+    ),
+    // ── Shop ──
+    shop: (
+      <>
       <section id="shop" className="section section--surface">
         <div className="container stack" style={{ gap: 32 }}>
           <div className="section-head">
@@ -492,8 +533,11 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* ── Social ── */}
+      </>
+    ),
+    // ── Social ──
+    social: (
+      <>
       {socials.accounts.length > 0 && (
         <section id="social" className="section">
           <div className="container stack" style={{ gap: 32 }}>
@@ -516,6 +560,16 @@ export default async function Home() {
             </div>
           </div>
         </section>
+      )}
+      </>
+    ),
+  };
+  const modules = normalizeModules(settings.homeModules.modules).filter((m) => m.enabled);
+
+  return (
+    <>
+      {modules.map((m, i) =>
+        m.kind === "custom" ? <CustomModule key={`custom-${i}`} module={m} index={i} /> : <Fragment key={m.kind}>{blocks[m.kind]}</Fragment>,
       )}
     </>
   );
@@ -663,6 +717,38 @@ function ActNow({ live, area }: { live: HomeLive; area: Area | null }) {
             </Link>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+const TONE_CLASS: Record<HomeModule["tone"], string> = {
+  white: "section",
+  grey: "section section--surface",
+  navy: "section section--navy on-dark",
+  yellow: "section section--yellow",
+};
+
+/** A text block an organizer added in Admin → Home page. */
+function CustomModule({ module: m, index }: { module: HomeModule; index: number }) {
+  if (!m.heading && !m.body && !m.buttonLabel) return null;
+  const headingId = `module-${index}-title`;
+  return (
+    <section className={`${TONE_CLASS[m.tone]} custom-module`} aria-labelledby={m.heading ? headingId : undefined}>
+      <div className="container stack" style={{ gap: 20, maxWidth: 820 }}>
+        {m.heading && (
+          <h2 id={headingId} className="display">
+            {m.heading}
+          </h2>
+        )}
+        {m.body && <Markdown text={m.body} className="lede" />}
+        {m.buttonLabel && m.buttonHref && (
+          <div className="btn-row">
+            <SmartLink href={m.buttonHref} className={`btn btn--lg ${m.tone === "navy" ? "btn--yellow" : "btn--red"}`}>
+              {m.buttonLabel}
+            </SmartLink>
+          </div>
+        )}
       </div>
     </section>
   );
