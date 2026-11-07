@@ -54,8 +54,14 @@ export const env = {
   get contributionLimitCents() {
     return cents("CONTRIBUTION_LIMIT_CENTS", 142970);
   },
+  /** The membership minimum: membership is by donation, from this amount a year. 0 makes membership free. */
   get membershipFeeCents() {
     return cents("MEMBERSHIP_FEE_CENTS", 1000);
+  },
+  /** The youth (14 to 30) membership minimum; unset means half of MEMBERSHIP_FEE_CENTS. */
+  get membershipYouthMinCents(): number | undefined {
+    const raw = process.env.MEMBERSHIP_YOUTH_MIN_CENTS;
+    return raw === undefined || raw === "" ? undefined : cents("MEMBERSHIP_YOUTH_MIN_CENTS", 0);
   },
   get adminSessionSecret() {
     return required("ADMIN_SESSION_SECRET");

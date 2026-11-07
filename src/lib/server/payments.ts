@@ -5,11 +5,23 @@ import type { Db } from "@/lib/db";
 import { contributions, memberships, orderItems, orders, people, products, recurringDonations } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe, type Stripe } from "@/lib/stripe";
-import { membershipTerm, MIN_DONATION_CENTS, slateAmountsFor, totalCents, type Slate } from "@/lib/contributions";
+import {
+  isYouthMember,
+  membershipAmountProblem,
+  membershipMinimumFor,
+  membershipMinimums as minimumsFrom,
+  membershipTerm,
+  MIN_DONATION_CENTS,
+  pacificYear,
+  slateAmountsFor,
+  totalCents,
+  type MembershipMinimums,
+  type Slate,
+} from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
 import { ageOn, BC_POSTAL_CODE_RE, MIN_MEMBER_AGE, normalizePostalCode, OUTSIDE_SURREY } from "@/lib/neighbourhoods";
 import type { cartSchema, donationSchema, membershipSchema } from "@/lib/validation";
-import { assertWithinLimit, lockPerson, SLATE_LABEL, UserFacingError, type Querier } from "./limits";
+import { assertWithinLimit, limitForYear, lockPerson, SLATE_LABEL, UserFacingError, type Querier } from "./limits";
 import { notifyMembershipActive } from "./notifications";
 import { findOrCreatePerson, type Person } from "./people";
 import { subscribe } from "./newsletter";
@@ -18,7 +30,7 @@ import { CONSENT_WORDING, consentMeta, recordConsent } from "./consent";
 import { normalizePhone } from "./sms";
 import { forwardMembership } from "./starbase-forward";
 
-export { contributionRoom, contributionTotals, UserFacingError } from "./limits";
+export { contributionRoom, contributionTotals, currentLimit, limitForYear, UserFacingError } from "./limits";
 export { addYear } from "@/lib/contributions";
 
 // Stripe's minimum Checkout lifetime is 30 minutes, measured when the request
@@ -152,7 +164,8 @@ function checkoutBase() {
 // ── Donations ──────────────────────────────────────────────────────────────
 
 export async function createDonationCheckout(db: Db, input: z.output<typeof donationSchema>, ctx: PublicFormContext = {}) {
-  const limitCents = env.contributionLimitCents;
+  // The Star and Superstar clubs give this year's limit.
+  const limitCents = await limitForYear(pacificYear(new Date()), db);
   if (input.tier === "standard" && input.amountCents < MIN_DONATION_CENTS) {
     throw new UserFacingError(`The smallest contribution we can take online is ${formatCents(MIN_DONATION_CENTS)}.`);
   }
@@ -272,8 +285,16 @@ export async function createDonationCheckout(db: Db, input: z.output<typeof dona
 // ── Memberships ────────────────────────────────────────────────────────────
 
 /**
+ * The membership minimums: MEMBERSHIP_FEE_CENTS for everyone, and for youth
+ * members (14 to 30) MEMBERSHIP_YOUTH_MIN_CENTS or else half of it.
+ */
+export function membershipMinimums(): MembershipMinimums {
+  return minimumsFrom(env.membershipFeeCents, env.membershipYouthMinCents);
+}
+
+/**
  * The only two answers the membership form gets: "received" when there is no
- * fee, otherwise a checkout for the fee, whoever the email belongs to.
+ * fee, otherwise a checkout for the amount chosen, whoever the email belongs to.
  * Neither says whether the email already belongs to a member, nor whether its
  * owner has given close to the contribution limit: either would tell anyone
  * who typed an address which party its owner supports. So a fee is never
@@ -293,10 +314,22 @@ export async function latestActiveMembershipExpiry(q: Querier, personId: string,
 }
 
 export async function createMembership(db: Db, input: z.output<typeof membershipSchema>, ctx: PublicFormContext = {}): Promise<MembershipResult> {
-  const feeCents = env.membershipFeeCents;
-  const age = ageOn(input.birthdate, new Date());
+  const now = new Date();
+  const age = ageOn(input.birthdate, now);
   if (age === undefined || age < MIN_MEMBER_AGE) {
     throw new UserFacingError(`Members must be ${MIN_MEMBER_AGE} or older.`, { birthdate: `Members must be ${MIN_MEMBER_AGE} or older` });
+  }
+  // Membership is by donation. The amount is checked against the minimum that
+  // applies (youth from the birthdate) and against this year's contribution
+  // limit, which is the most anyone can give, and is the same for everyone:
+  // nothing here depends on who the email belongs to.
+  const minimums = membershipMinimums();
+  const youth = isYouthMember(input.birthdate, now);
+  const minCents = membershipMinimumFor(minimums, youth);
+  const feeCents = minimums.standardCents === 0 ? 0 : (input.amountCents ?? minCents);
+  if (minimums.standardCents > 0) {
+    const problem = membershipAmountProblem(feeCents, minimums, youth, await limitForYear(pacificYear(now), db));
+    if (problem) throw new UserFacingError(problem, { amountCents: problem });
   }
   if (feeCents > 0) {
     if (input.citizenshipStatus === "Other") {
@@ -349,6 +382,7 @@ export async function createMembership(db: Db, input: z.output<typeof membership
   const snapshot = {
     personId: person.id,
     feeCents,
+    youth,
     votingEligible,
     memberName: `${input.firstName} ${input.lastName}`,
     memberAddress: input.address,
@@ -383,7 +417,8 @@ export async function createMembership(db: Db, input: z.output<typeof membership
   }
 
   // No limit check here (see MembershipResult): the webhook's backstop, under
-  // the same person lock, returns a fee that turns out to be over the limit.
+  // the same person lock, runs on the amount chosen and returns whatever of it
+  // turns out to be over the limit for the year it is paid in.
   const { membership, contribution } = await db.transaction(async (tx) => {
     await lockPerson(tx, person.id);
     const [membership] = await tx.insert(memberships).values(snapshot).returning({ id: memberships.id });
@@ -413,9 +448,9 @@ export async function createMembership(db: Db, input: z.output<typeof membership
       ...customerParams(customerId, person.email, "payment"),
       ...checkoutBase(),
       mode: "payment",
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: feeCents, product_data: { name: "Imagine Surrey membership (1 year)" } } }],
+      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: feeCents, product_data: { name: "Imagine Surrey membership (1 year, by donation)" } } }],
       metadata,
-      payment_intent_data: { metadata, description: "Imagine Surrey membership fee" },
+      payment_intent_data: { metadata, description: `Imagine Surrey membership by donation: ${formatCents(feeCents)}` },
       success_url: `${env.siteUrl}/join/welcome?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${env.siteUrl}/#join`,
     }));

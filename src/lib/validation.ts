@@ -66,6 +66,10 @@ export const membershipSchema = z
     issue: optional(200),
     interestVolunteer: checkbox,
     interestLawnSign: checkbox,
+    // Membership is by donation: the amount chosen, in cents. Without one the
+    // minimum that applies is charged. The route checks it against the minimum
+    // (the youth one from the birthdate) and the year's contribution limit.
+    amountCents: z.number({ error: "Choose an amount" }).int("Choose an amount in dollars and cents").min(0).max(100_000_000).optional(),
     // The membership application itself (accurate details, privacy policy read).
     consent,
     // Express consent to marketing email and to texts: each is its own unchecked box.

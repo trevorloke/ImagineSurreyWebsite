@@ -45,8 +45,9 @@ This guide takes the site from this repository to a live website. Supporter data
    | `NEXT_PUBLIC_SITE_URL` | `https://<your-project>.vercel.app` for now |
    | `STRIPE_SECRET_KEY` | Stripe → Developers → API keys → Secret key. Use `sk_test_…` while testing. |
    | `STRIPE_WEBHOOK_SECRET` | Leave blank for now; you fill it in at step 8 |
-   | `MEMBERSHIP_FEE_CENTS` | e.g. `1000` for $10 a year, or `0` for free membership |
-   | `CONTRIBUTION_LIMIT_CENTS` | `142970` ($1,429.70; check it against Elections BC each year) |
+   | `MEMBERSHIP_FEE_CENTS` | The membership minimum (membership is by donation): `1000` for $10 a year, or `0` for free membership |
+   | `MEMBERSHIP_YOUTH_MIN_CENTS` | Optional. The minimum for members aged 14 to 30; unset means half of `MEMBERSHIP_FEE_CENTS` ($5) |
+   | `CONTRIBUTION_LIMIT_CENTS` | `142970` ($1,429.70). Only a fallback: the limit for each year is kept in Admin → Contribution limits (the seed stores 2026) |
    | `ADMIN_EMAIL` | **Required to sign in to `/admin`.** Your email: the first sign-in with this address and `ADMIN_PASSWORD` creates the owner account |
    | `ADMIN_PASSWORD` | A long password (12+ characters) for that first sign-in. Change it afterwards under My account |
    | `ADMIN_SESSION_SECRET` | A long random string, e.g. from `openssl rand -hex 32`. It also signs supporter sign-ins |

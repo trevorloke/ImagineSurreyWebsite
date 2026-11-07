@@ -9,7 +9,7 @@ The public website and organizing back office for Imagine Surrey: Next.js 16 (Ap
 | Page | What it does |
 | --- | --- |
 | **Home** (`/`) | Every word comes from Admin → Site settings. Under the hero, an "Act now" rail shows the next events and the next open volunteer shift, the latest promise-tracker changes, and a link to the neighbourhood pages. The site shows no supporter counts anywhere: those stay in the admin. |
-| **Join** (`/#join`) | Membership through Stripe Checkout. The fee counts as a contribution under BC law. Separate, unticked boxes for email updates and texts. |
+| **Join** (`/#join`) | Membership by donation through Stripe Checkout: pay what you can from $10 a year ($5 for members aged 14 to 30 on the day they join), renewed every year. Suggested amounts start at the minimum, which is what is selected until the person picks more. The whole amount counts as a contribution under BC law. Separate, unticked boxes for email updates and texts. |
 | **Donate** (`/donate`) | One-time or monthly gifts, never pre-selected as monthly, to the council or school board slate (or both). The BC annual contribution limit is enforced across every channel, and any excess is refunded automatically. |
 | **Petitions and pledges** (`/act`, `/act/<slug>`) | Created in Admin → Content → Campaigns. Each has a share image, a WhatsApp-first share row and a printable paper sheet (`/act/<slug>/print`). Signature counts are in the admin only. |
 | **Promise tracker** (`/tracker`) | Safe Surrey Coalition's 26 promises. Each has its own page (`/tracker/<n>`) showing the record, the delivery test, a due or overdue countdown, a follow form for email alerts, a share image and a letter to council. There is also a methodology page, an RSS feed, a JSON API (`/api/promises`) and an embeddable scoreboard (`/tracker/embed`). |
@@ -36,6 +36,7 @@ Staff sign in with email and password, or a one-time emailed link. Owners invite
 | **Promise tracker** | Score promises with dated, sourced updates. Followers are emailed when a status changes. |
 | **Integrations** | What's connected (Stripe, email, texts, storage, Starbase, the human check, analytics, cron, database), with test buttons. |
 | **Gifts to log at the desk** | Online gifts the treasurer still has to enter in Starbase (Donations → Log a gift), with a CSV and "Mark logged". |
+| **Contribution limits** | The BC limit per person for each calendar year, with its Elections BC source. Every check uses the figure for the year a gift is paid in, so next year's takes effect at midnight on January 1 (Pacific) by itself. Audited. |
 | **Exports**, **Staff**, **Audit log**, **My account** | |
 
 ## Starbase (the desk)
@@ -79,9 +80,9 @@ The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unle
 
 ## Before launch: decisions for the organization
 
-- **Membership fee**: `MEMBERSHIP_FEE_CENTS` defaults to $10 a year. Set it to `0` for free membership.
-- **Contribution limit**: `CONTRIBUTION_LIMIT_CENTS` is $1,429.70. Check it against Elections BC every January.
-- **Over-limit membership fees**: everyone with a fee goes to checkout, so the site never reveals that someone is near the limit. A fee that turns out to be over the limit is refunded automatically, and the membership is cancelled with a private email to the payer. Each refund costs the Stripe fee.
+- **Membership by donation**: `MEMBERSHIP_FEE_CENTS` is the minimum, $10 a year by default. Youth members (14 to 30 on the day they join, from the birthdate on the form) have half of it, or `MEMBERSHIP_YOUTH_MIN_CENTS` if set. The most anyone can choose is the year's contribution limit. Set `MEMBERSHIP_FEE_CENTS` to `0` for free membership.
+- **Contribution limit**: stored per year in Admin → Contribution limits (2026: $1,429.70, seeded). Enter next year's figure as soon as Elections BC publishes it; from December 1 the dashboard asks for it. `CONTRIBUTION_LIMIT_CENTS` is only the fallback for a year with no figure. Starbase keeps its own.
+- **Over-limit memberships**: everyone joining goes to checkout, so the site never reveals that someone is near the limit. The limit check runs on the amount chosen once it is paid: any part over the limit is refunded automatically, and if none of it can be kept the membership is cancelled with a private email to the payer. Each refund costs the Stripe fee.
 - **Privacy policy**: the seeded `/privacy` page is a **draft**. Have the board and privacy officer review it before launch.
 - **Election-law review**: have your financial agent confirm the contributor fields, the disclosure exports and the treatment of merchandise. Under the LECFA, any amount paid over a merch item's market value can count as a contribution.
 - **Shipping**: shop checkout collects an address but charges nothing for shipping.

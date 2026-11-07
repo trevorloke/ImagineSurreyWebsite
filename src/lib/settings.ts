@@ -100,6 +100,9 @@ export const sections = {
       title: text(80).default("Become a member"),
       intro: text(500).default("Imagine Surrey is residents, not a brand. Members set the priorities, have a direct say in what we stand for, and hear first when something is happening in their neighbourhood."),
       benefits: z.array(z.object({ title: text(60), body: text(300) })).max(6).default(memberBenefits),
+      // Membership is by donation; the form adds the minimums from MEMBERSHIP_FEE_CENTS.
+      amountTitle: text(80).default("Your membership, by donation"),
+      amountNote: text(300).default("Give what you can. Membership runs for a year, and every dollar goes to organizing in Surrey."),
       photo: image.default({ url: "/images/members-rally.jpg", alt: "A packed room of Imagine Surrey supporters cheering and holding up signs that read change that works for you" }),
       newsletterTitle: text(80).default("Not ready to join? Get the newsletter"),
       newsletterText: text(300).default("News and events from around Surrey. By subscribing you agree to receive email from Imagine Surrey. Unsubscribe anytime."),

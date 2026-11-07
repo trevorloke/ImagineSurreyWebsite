@@ -25,7 +25,7 @@ export async function membershipForCheckoutSession(db: Db, sessionId: string) {
     return (
       (await db.query.memberships.findFirst({
         where: eq(memberships.stripeCheckoutSessionId, sessionId),
-        columns: { status: true, startsAt: true, expiresAt: true, personId: true },
+        columns: { status: true, startsAt: true, expiresAt: true, personId: true, feeCents: true },
       })) ?? null
     );
   } catch {

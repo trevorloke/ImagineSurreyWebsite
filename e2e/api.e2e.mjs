@@ -26,6 +26,9 @@ const OVER_LIMIT = (slate) =>
   `That would take you over this year's $1,429.70 contribution limit for our ${slate}. Try a smaller amount, or email hello@imaginesurrey.ca if you think this is a mistake.`;
 const seconds = (d) => Math.floor(new Date(d).getTime() / 1000);
 const pacificMonthIndex = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", month: "numeric" }).format(new Date())) - 1;
+const pacificYear = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", year: "numeric" }).format(new Date()));
+/** A birthdate that makes someone `age` today, whatever today is. */
+const birthdateForAge = (age) => `${pacificYear - age}-01-01`;
 
 const completed = async (id, extra = {}, opts = {}) => {
   const s = await fakeSession(id);
@@ -91,7 +94,7 @@ const memSession = sid(r.body.url);
 const memParams = (await fakeSession(memSession)).params;
 ok(
   memParams.line_items["0"].price_data.unit_amount === "1000" && memParams.customer_email === "asha@example.com" && memParams.customer_creation === "always",
-  "membership checkout charges $10 to the member's email and asks Stripe to create a customer",
+  "membership checkout with no amount chosen charges the $10 minimum to the member's email and asks Stripe to create a customer",
 );
 ok(Number(memParams.expires_at) - Math.floor(Date.now() / 1000) > 31 * 60, "checkout expiry leaves Stripe's 30-minute minimum some margin");
 let p = (await sql`select source, referred_by_id = (select id from people where email='news@example.com') as referred from people where email='asha@example.com'`)[0];
@@ -149,6 +152,55 @@ const resend = await fetch(BASE + "/api/stripe/webhook", {
 ok((await resend.json()).result === "duplicate", "replayed webhook is ignored");
 const bad = await fetch(BASE + "/api/stripe/webhook", { method: "POST", headers: { "stripe-signature": "t=1,v1=deadbeef" }, body: w.payload });
 ok(bad.status === 400, "webhook with bad signature rejected");
+
+// ── Membership by donation ────────────────────────────────────────────────
+// Pay what you can from $10 a year; $5 for youth members (14 to 30 on the day they join).
+const MIN_MESSAGE = "The smallest membership is $10 a year ($5 for members aged 14 to 30).";
+const YOUTH_MIN_MESSAGE = "The smallest youth membership (ages 14 to 30) is $5 a year.";
+// Not volunteers: the shifts suite's roster stays the size it expects.
+const joiner = { ...member, interestVolunteer: false };
+r = await post("/api/membership", { ...joiner, email: "pwyc@example.com", amountCents: 2550 });
+ok(r.status === 200 && r.body.status === "checkout" && Object.keys(r.body).sort().join() === "status,url", "a pay-what-you-can membership gets the usual checkout answer");
+const pwycSession = sid(r.body.url);
+ok((await fakeSession(pwycSession)).params.line_items["0"].price_data.unit_amount === "2550", "the checkout charges the amount chosen ($25.50)");
+w = await completed(pwycSession);
+const pwyc = (await sql`select m.status, m.fee_cents, m.youth, c.amount_cents, c.status as fee_status, c.kind from memberships m join contributions c on c.stripe_checkout_session_id = m.stripe_checkout_session_id where m.stripe_checkout_session_id=${pwycSession}`)[0];
+ok(
+  w.body.result === "processed" && pwyc.status === "active" && pwyc.fee_cents === 2550 && pwyc.youth === false && pwyc.amount_cents === 2550 && pwyc.fee_status === "succeeded" && pwyc.kind === "membership_fee",
+  "the whole amount chosen is the membership contribution, and the member isn't marked youth",
+);
+const pwycForward = await sql`select payload from starbase_outbox where kind='membership' and person_id=(select id from people where email='pwyc@example.com')`;
+ok(
+  pwycForward.length === 1 && !JSON.stringify(pwycForward[0].payload).includes("2550") && !JSON.stringify(pwycForward[0].payload).includes("25.50") && !/amount|cents|fee/i.test(Object.keys(pwycForward[0].payload).join()),
+  "the membership forwarded to Starbase carries no money",
+);
+const pwycWelcome = await (await fetch(`${BASE}/join/welcome?session_id=${pwycSession}`)).text();
+ok(pwycWelcome.includes("your $25.50 membership") && pwycWelcome.includes("runs until"), "the welcome page thanks the member for the amount they chose");
+
+r = await post("/api/membership", { ...joiner, email: "under-min@example.com", amountCents: 900 });
+ok(r.status === 422 && r.body.error === MIN_MESSAGE && r.body.fields?.amountCents === MIN_MESSAGE, "an amount under the $10 minimum is refused, naming the youth minimum");
+ok((await sql`select count(*)::int c from people where email='under-min@example.com'`)[0].c === 0, "and nothing is recorded for it");
+r = await post("/api/membership", { ...joiner, email: "under-min@example.com", amountCents: 500 });
+ok(r.status === 422 && r.body.fields?.amountCents === MIN_MESSAGE, "$5 is refused for someone over 30");
+r = await post("/api/membership", { ...joiner, email: "under-min@example.com", amountCents: LIMIT + 1 });
+ok(r.status === 422 && r.body.fields?.amountCents === "The most you can give is $1,429.70 a year under BC law.", "more than the year's limit is refused");
+r = await post("/api/membership", { ...joiner, email: "under-min@example.com", amountCents: 1000.5 });
+ok(r.status === 422 && r.body.fields?.amountCents, "fractions of a cent are refused");
+
+r = await post("/api/membership", { ...joiner, email: "youth@example.com", birthdate: birthdateForAge(20), amountCents: 400 });
+ok(r.status === 422 && r.body.fields?.amountCents === YOUTH_MIN_MESSAGE, "under the youth minimum is refused with the youth minimum named");
+r = await post("/api/membership", { ...joiner, email: "youth@example.com", birthdate: birthdateForAge(20), amountCents: 500 });
+ok(r.status === 200 && r.body.status === "checkout", "a youth member can join for $5");
+const youthSession = sid(r.body.url);
+ok((await fakeSession(youthSession)).params.line_items["0"].price_data.unit_amount === "500", "the youth checkout charges $5");
+w = await completed(youthSession);
+const youthRow = (await sql`select status, fee_cents, youth from memberships where stripe_checkout_session_id=${youthSession}`)[0];
+ok(youthRow.status === "active" && youthRow.fee_cents === 500 && youthRow.youth === true, "the youth membership is active, $5, and marked youth");
+r = await post("/api/membership", { ...joiner, email: "youth-default@example.com", birthdate: birthdateForAge(14) });
+ok(r.status === 200 && (await fakeSession(sid(r.body.url))).params.line_items["0"].price_data.unit_amount === "500", "with no amount chosen, a 14-year-old is charged the $5 youth minimum");
+ok((await sql`select youth from memberships where stripe_checkout_session_id=${sid(r.body.url)}`)[0].youth === true, "and is marked youth");
+r = await post("/api/membership", { ...joiner, email: "thirty-one@example.com", birthdate: birthdateForAge(31), amountCents: 500 });
+ok(r.status === 422 && r.body.fields?.amountCents === MIN_MESSAGE, "at 31 the youth minimum no longer applies");
 
 // Joining again never reveals the existing membership; it extends it.
 r = await post("/api/membership", member);
@@ -228,7 +280,7 @@ ok(
   "the payer alone is emailed why, how to sort it out, and no amounts",
 );
 const welcomeFull = await (await fetch(`${BASE}/join/welcome?session_id=${fullSession}`)).text();
-ok(!welcomeFull.includes("fee is paid") && !welcomeFull.includes("runs until") && !welcomeFull.includes("part of your neighbourhood committee") && welcomeFull.includes("Thanks for joining"), "the welcome page doesn't call a returned fee paid or the payer a member");
+ok(!welcomeFull.includes("payment is in") && !welcomeFull.includes("runs until") && !welcomeFull.includes("part of your neighbourhood committee") && welcomeFull.includes("Thanks for joining"), "the welcome page doesn't call a returned fee paid or the payer a member");
 r = await post("/api/donations/checkout", { ...donor, email: "star@example.com", frequency: "one_time", tier: "superstar", amountCents: 0 });
 const ss = await fakeSession(sid(r.body.url));
 ok(r.status === 200 && Object.keys(ss.params.line_items).length === 2 && ss.amount_total === 285940, "Superstar one-time is two line items totalling $2,859.40");
@@ -296,7 +348,7 @@ ok(
   "a fee paid once the limit is reached is returned and the membership cancelled",
 );
 const welcomeRace = await (await fetch(`${BASE}/join/welcome?session_id=${raceSession}`)).text();
-ok(!welcomeRace.includes("fee is paid") && !welcomeRace.includes("runs until") && welcomeRace.includes("Thanks for joining"), "the welcome page doesn't call a returned fee paid");
+ok(!welcomeRace.includes("payment is in") && !welcomeRace.includes("runs until") && welcomeRace.includes("Thanks for joining"), "the welcome page doesn't call a returned fee paid");
 ok((await feeMailFor("race@example.com")).length === 1, "and the payer is emailed why");
 
 // ── Over-limit refunds Stripe could not take at the time ──────────────────
@@ -552,6 +604,37 @@ const tok = (await sql`select unsubscribe_token from newsletter_subscribers wher
 await fetch(BASE + "/api/newsletter/unsubscribe", { method: "POST", body: new URLSearchParams({ token: tok }), redirect: "manual" });
 ok((await sql`select status from newsletter_subscribers where email='news@example.com'`)[0].status === "unsubscribed", "unsubscribe works");
 
+// ── Contribution limits by year ───────────────────────────────────────────
+// Every check uses the row for the contribution's Pacific year; the seed stores this year's.
+const yearRow = async () => (await sql`select cents from contribution_limits where year=${pacificYear}`)[0];
+ok((await yearRow())?.cents === LIMIT || pacificYear !== 2026, `the ${pacificYear} limit is stored`);
+await sql`insert into contribution_limits (year, cents, note) values (${pacificYear}, 50000, 'e2e') on conflict (year) do update set cents = 50000`;
+const LOW_OVER = "That would take you over this year's $500 contribution limit for our city council slate. Try a smaller amount, or email hello@imaginesurrey.ca if you think this is a mistake.";
+r = await post("/api/donations/checkout", { ...donor, email: "by-year@example.com", frequency: "one_time", tier: "standard", amountCents: 50001 });
+ok(r.status === 422 && r.body.error === LOW_OVER, "a donation over this year's stored limit is refused, naming that limit");
+r = await post("/api/donations/checkout", { ...donor, email: "by-year@example.com", frequency: "one_time", tier: "star", amountCents: 0 });
+ok(r.status === 200 && (await fakeSession(sid(r.body.url))).amount_total === 50000, "the Star Club gives this year's stored limit");
+const byYearStar = sid(r.body.url);
+r = await post("/api/membership", { ...joiner, email: "by-year@example.com", amountCents: 2500 });
+const byYearMembership = sid(r.body.url);
+r = await post("/api/membership", { ...joiner, email: "by-year-max@example.com", amountCents: 50001 });
+ok(r.status === 422 && r.body.fields?.amountCents === "The most you can give is $500 a year under BC law.", "the membership maximum is this year's stored limit");
+await completed(byYearStar);
+w = await completed(byYearMembership);
+const byYearFee = (await sql`select status, refunded_cents from contributions where stripe_checkout_session_id=${byYearMembership}`)[0];
+ok(
+  w.body.result === "processed" && byYearFee.status === "refunded_over_limit" && byYearFee.refunded_cents === 2500 && (await sql`select status from memberships where stripe_checkout_session_id=${byYearMembership}`)[0].status === "cancelled",
+  "the webhook backstop checks the chosen membership amount against the stored limit and returns it",
+);
+await sql`insert into contribution_limits (year, cents, note) values (${pacificYear + 1}, 99000, 'e2e next year') on conflict (year) do nothing`;
+r = await post("/api/donations/checkout", { ...donor, email: "next-year@example.com", frequency: "one_time", tier: "standard", amountCents: 60000 });
+ok(r.status === 422 && r.body.error === LOW_OVER, "next year's figure doesn't apply until January 1");
+await sql`delete from contribution_limits where year=${pacificYear}`;
+r = await post("/api/donations/checkout", { ...donor, email: "next-year@example.com", frequency: "one_time", tier: "standard", amountCents: 60000 });
+ok(r.status === 200, "a year with no row falls back to CONTRIBUTION_LIMIT_CENTS");
+await sql`delete from contribution_limits where year=${pacificYear + 1}`;
+await sql`insert into contribution_limits (year, cents, note) values (${pacificYear}, ${LIMIT}, 'Elections BC') on conflict (year) do update set cents = ${LIMIT}`;
+
 // ── Admin ─────────────────────────────────────────────────────────────────
 let a = await fetch(BASE + "/api/admin/export/members", { redirect: "manual" });
 ok(a.status === 401, "CSV export requires sign-in");
@@ -568,5 +651,9 @@ ok(csv.startsWith("paid_at,contributor_name") && csv.includes("membership_fee"),
 const dash = await (await fetch(BASE + "/admin", { headers: { cookie } })).text();
 const activeMembers = await (await fetch(BASE + "/admin/people?membership=active", { headers: { cookie } })).text();
 ok(dash.includes("Active members") && activeMembers.includes("asha@example.com"), "admin dashboard counts members and the people list shows active ones");
+const limitsPage = await (await fetch(BASE + "/admin/limits", { headers: { cookie } })).text();
+ok(limitsPage.includes("Contribution limits") && limitsPage.includes(`data-year="${pacificYear}"`) && limitsPage.includes("$1,429.70"), "Admin → Contribution limits lists the stored years");
+ok((await fetch(BASE + "/admin/limits", { redirect: "manual" })).status !== 200, "the limits page needs sign-in");
+ok(dash.includes('href="/admin/limits"'), "the admin nav links to the contribution limits");
 
 await finish();

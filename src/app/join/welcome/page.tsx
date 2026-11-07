@@ -4,6 +4,7 @@ import { PageHead } from "@/components/PageHead";
 import { NextStep } from "@/components/engage/NextStep";
 import { formatDate } from "@/lib/dates";
 import { getDb } from "@/lib/db";
+import { formatCents } from "@/lib/money";
 import { completedSession, membershipForCheckoutSession } from "@/lib/server/checkout-session";
 
 export const metadata: Metadata = { title: "Welcome", robots: { index: false } };
@@ -17,10 +18,12 @@ export default async function Welcome({ searchParams }: PageProps<"/join/welcome
   // a fee paid while the webhook has yet to say otherwise, and only says they
   // have joined when there is a membership that isn't cancelled.
   const returned = membership?.status === "cancelled";
+  // Membership is by donation: thank them for what they chose to give.
+  const gave = membership && membership.feeCents > 0 ? `your ${formatCents(membership.feeCents)} membership` : "joining";
   const lede = runsUntil
-    ? `Your membership is paid and runs until ${runsUntil}. Stripe will email your receipt.`
+    ? `Thank you for ${gave}. It runs until ${runsUntil}; renew then at whatever amount you can. Stripe will email your receipt.`
     : membership?.status === "pending_payment"
-      ? "Your membership fee is paid. Stripe will email your receipt."
+      ? `Thank you for ${gave}. Your payment is in, and Stripe will email your receipt.`
       : "Thanks for joining. Watch your inbox for a note from us.";
   return (
     <>
