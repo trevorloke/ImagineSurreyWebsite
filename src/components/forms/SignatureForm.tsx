@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { campaignShareLinks, nextAsks, SHARE_CHANNELS } from "@/app/act/links";
-import { formatCount } from "@/app/act/milestone";
 import { site } from "@/content/site";
 import { signatureSchema } from "@/lib/validation";
 import { ConsentCheckbox, ErrorSummary, Honeypot, LiveRegion, PostalCodeField, SubmitButton, SuccessCard, TextField, TrackingFields } from "./Field";
@@ -13,7 +12,6 @@ import { readForm, useApiForm } from "./useApiForm";
 export type SignatureResult = {
   ok: true;
   campaign: { slug: string; title: string; kind: "petition" | "pledge"; shareText: string };
-  count: number;
 };
 
 export type SignatureFormProps = {
@@ -27,7 +25,7 @@ export type SignatureFormProps = {
   question?: string | null;
   /** Shown above the fields on petitions. Pass "" for none. */
   heading?: string;
-  /** Called with the API response after a successful sign, e.g. to update a live count. */
+  /** Called with the API response after a successful sign. */
   onSigned?: (result: SignatureResult) => void;
   /** Replaces the default next asks (join, donate, volunteer) in the success card. */
   nextSteps?: ReactNode;
@@ -41,8 +39,8 @@ export function SignatureForm({ campaign, kind, variant, question, heading, onSi
   const petition = resolvedKind === "petition";
   const p = idPrefix ?? `sig-${campaign}`;
   const { submit, pending, error, fields, summaryRef, fail, human } = useApiForm<Partial<SignatureResult> & { ok: true }>("/api/signatures", { schema: signatureSchema });
-  // A honeypot hit gets a bare {ok:true}; the card still renders, without a count.
-  const [done, setDone] = useState<{ campaign: SignatureResult["campaign"]; count: number | null } | null>(null);
+  // A honeypot hit gets a bare {ok:true}; the card still renders.
+  const [done, setDone] = useState<{ campaign: SignatureResult["campaign"] } | null>(null);
   const [live, setLive] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -55,11 +53,6 @@ export function SignatureForm({ campaign, kind, variant, question, heading, onSi
         <SuccessCard title={petition ? "Your name is on the petition" : "You’ve signed the pledge"} style={{ flex: "1 1 380px" }}>
           <p>
             Thanks.{" "}
-            {done.count !== null && (
-              <>
-                You’re one of <strong>{formatCount(done.count)}</strong> {done.count === 1 ? "person" : "people"} who {petition ? "signed. " : "took the pledge. "}
-              </>
-            )}
             {petition ? "We’ll deliver the names to City Hall." : "We’ll hold City Hall to it."}
           </p>
           <p style={{ fontWeight: 700, color: "var(--navy)" }}>Share it with a neighbour:</p>
@@ -118,11 +111,9 @@ export function SignatureForm({ campaign, kind, variant, question, heading, onSi
           const result = await submit(body);
           if (!result) return;
           const summary = result.campaign ?? { slug: campaign, title: "", kind: resolvedKind, shareText: "" };
-          const total = typeof result.count === "number" ? result.count : null;
-          const signed = total === null ? "" : ` ${formatCount(total)} people have signed.`;
-          setLive(petition ? `Thanks, your name is on the petition.${signed}` : `Thanks, you’ve signed the pledge.${signed}`);
-          setDone({ campaign: summary, count: total });
-          if (result.campaign && total !== null) onSigned?.({ ok: true, campaign: result.campaign, count: total });
+          setLive(petition ? "Thanks, your name is on the petition." : "Thanks, you’ve signed the pledge.");
+          setDone({ campaign: summary });
+          if (result.campaign) onSigned?.({ ok: true, campaign: result.campaign });
         }}
       >
         <Honeypot />

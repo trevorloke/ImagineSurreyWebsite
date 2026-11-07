@@ -8,15 +8,14 @@ The public website and organizing back office for Imagine Surrey: Next.js 16 (Ap
 
 | Page | What it does |
 | --- | --- |
-| **Home** (`/`) | Every word comes from Admin → Site settings. Under the hero, an "Act now" rail shows live numbers (members, pledge and petition signers), the next events and the next open volunteer shift, and the latest promise-tracker changes. A "Your area" chip turns a postal code into the visitor's town centre and shows local numbers. The postal code never leaves the browser. |
+| **Home** (`/`) | Every word comes from Admin → Site settings. Under the hero, an "Act now" rail shows the next events and the next open volunteer shift, the latest promise-tracker changes, and a link to the neighbourhood pages. The site shows no supporter counts anywhere: those stay in the admin. |
 | **Join** (`/#join`) | Membership through Stripe Checkout. The fee counts as a contribution under BC law. Separate, unticked boxes for email updates and texts. |
 | **Donate** (`/donate`) | One-time or monthly gifts, never pre-selected as monthly, to the council or school board slate (or both). The BC annual contribution limit is enforced across every channel, and any excess is refunded automatically. |
-| **Petitions and pledges** (`/act`, `/act/<slug>`) | Created in Admin → Content → Campaigns. Each has a milestone bar, counts by town centre (shown only once a town centre has at least 10), a share image, a WhatsApp-first share row and a printable paper sheet (`/act/<slug>/print`). |
+| **Petitions and pledges** (`/act`, `/act/<slug>`) | Created in Admin → Content → Campaigns. Each has a share image, a WhatsApp-first share row and a printable paper sheet (`/act/<slug>/print`). Signature counts are in the admin only. |
 | **Promise tracker** (`/tracker`) | Safe Surrey Coalition's 26 promises. Each has its own page (`/tracker/<n>`) showing the record, the delivery test, a due or overdue countdown, a follow form for email alerts, a share image and a letter to council. There is also a methodology page, an RSS feed, a JSON API (`/api/promises`) and an embeddable scoreboard (`/tracker/embed`). |
 | **Volunteer** (`/volunteer`) | Published shift openings by week, with spots left. One-tap sign-up adds the shift to your calendar (`.ics` or Google) and sends reminders the day before. |
-| **Neighbourhoods** (`/neighbourhoods/<town-centre>`) | Each of the six town centres has a page: events, open shifts, the promises that touch it and local counts. A postal-code finder sends people to their own. |
+| **Neighbourhoods** (`/neighbourhoods/<town-centre>`) | Each of the six town centres has a page: events, open shifts, the promises that touch it and the petitions to sign. A postal-code finder sends people to their own. |
 | **Events** (`/events`) | Capacity, a map link, calendar files, RSVPs (refused once the event is full) and share links. |
-| **Numbers** (`/stats`) | Live counts with a published "how we count" method, refreshed every five minutes. |
 | **Supporter portal** (`/me`) | Passwordless sign-in by emailed link. Shows membership, giving this year with the room left under the BC limit, managing a monthly gift (Stripe), upcoming shifts and RSVPs with a calendar feed, a personal referral link, preferences (language, email, texts) and "download my data" or "delete my account". |
 | **Email preferences** (`/preferences`) | Anyone can ask for a link by email and change what they receive, with no account needed. |
 | **Shop**, **News**, `/privacy`, `/accessibility` and any page made in Admin → Pages | |
@@ -48,7 +47,7 @@ The campaign's database app, Starbase, gets new sign-ups from this website: peti
 - **Consent ledger.** Every grant and withdrawal of email or text consent is stored in `consent_events` with the exact wording the person saw, where it happened, and when. This is proof of consent for CASL.
 - **Tick boxes are never pre-checked.** A public form can't undo someone's withdrawal: anyone can type anyone's email, so only a verified channel (the preference centre link, the signed-in portal, a text from the number itself) can re-grant consent.
 - **Newsletter sign-up is double opt-in** when email is configured. An address that unsubscribed is never re-added by a form.
-- **No public answer reveals whether an email belongs to a member, donor or signer** (political affiliation is sensitive under BC PIPA). Public counts are shown only from 10 upward.
+- **No public answer reveals whether an email belongs to a member, donor or signer** (political affiliation is sensitive under BC PIPA), and the public site shows no supporter counts. `/stats` redirects to the home page.
 
 ## Local development
 
@@ -83,7 +82,6 @@ The end-to-end runner wipes the database in `E2E_DATABASE_URL`, and refuses unle
 - **Contribution limit**: `CONTRIBUTION_LIMIT_CENTS` is $1,429.70. Check it against Elections BC every January.
 - **Over-limit membership fees**: everyone with a fee goes to checkout, so the site never reveals that someone is near the limit. A fee that turns out to be over the limit is refunded automatically, and the membership is cancelled with a private email to the payer. Each refund costs the Stripe fee.
 - **Privacy policy**: the seeded `/privacy` page is a **draft**. Have the board and privacy officer review it before launch.
-- **Public counters**: decide whether the board will keep showing live numbers when they fall. `/stats` publishes the counting method.
 - **Election-law review**: have your financial agent confirm the contributor fields, the disclosure exports and the treatment of merchandise. Under the LECFA, any amount paid over a merch item's market value can count as a contribution.
 - **Shipping**: shop checkout collects an address but charges nothing for shipping.
 

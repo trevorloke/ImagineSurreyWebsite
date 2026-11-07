@@ -6,7 +6,6 @@ import { neighbourhoodForPostalCode, normalizePostalCode } from "@/lib/neighbour
 import { error, json, parseBody } from "@/lib/server/api";
 import { creditReferral, sourceLabel, trackingFromRequest } from "@/lib/server/attribution";
 import { invalidate, TAGS } from "@/lib/server/cache";
-import { countSignatures } from "@/lib/server/campaigns";
 import { CONSENT_WORDING, consentMeta, recordConsent } from "@/lib/server/consent";
 import { handle } from "@/lib/server/handle";
 import { subscribe } from "@/lib/server/newsletter";
@@ -18,9 +17,9 @@ import { signatureSchema } from "@/lib/validation";
 
 /**
  * Sign a petition or pledge. Signing twice is harmless: the first signature
- * stands and the count never double-counts an address. Email and text consent
- * come only from the person's own ticks and are written to the consent ledger
- * with the wording they saw.
+ * stands. The response carries no count: signature numbers are admin-only.
+ * Email and text consent come only from the person's own ticks and are
+ * written to the consent ledger with the wording they saw.
  */
 export async function POST(req: NextRequest) {
   return handle(async () => {
@@ -109,7 +108,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const count = await countSignatures(slug);
-    return json({ ok: true, campaign: { slug, title: campaign.title, kind: campaign.kind, shareText: campaign.shareText }, count });
+    return json({ ok: true, campaign: { slug, title: campaign.title, kind: campaign.kind, shareText: campaign.shareText } });
   });
 }

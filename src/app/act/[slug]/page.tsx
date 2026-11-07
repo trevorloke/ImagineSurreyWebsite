@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHead } from "@/components/PageHead";
 import { env } from "@/lib/env";
 import { excerpt, renderMarkdown } from "@/lib/markdown";
-import { campaignCounts, getCampaign } from "@/lib/server/campaigns";
+import { getCampaign } from "@/lib/server/campaigns";
 import { CAMPAIGN_SLUG_RE } from "@/lib/validation";
 import { campaignShareLinks } from "../links";
 import { CampaignSign } from "./CampaignSign";
@@ -30,7 +30,6 @@ export default async function CampaignPage({ params }: PageProps<"/act/[slug]">)
   if (!CAMPAIGN_SLUG_RE.test(slug)) notFound();
   const campaign = await getCampaign(slug);
   if (!campaign) notFound();
-  const counts = await campaignCounts(slug);
   const url = `${env.siteUrl}/act/${slug}`;
   const share = campaignShareLinks({ url, text: campaign.shareText || `I signed "${campaign.title}". Add your name:`, subject: campaign.title });
   const kindLabel = campaign.kind === "pledge" ? "Pledge" : "Petition";
@@ -43,8 +42,7 @@ export default async function CampaignPage({ params }: PageProps<"/act/[slug]">)
       <section className="section">
         <div className="container">
           <CampaignSign
-            campaign={{ slug: campaign.slug, title: campaign.title, kind: campaign.kind, question: campaign.question, goal: campaign.goal }}
-            counts={{ count: counts.count, byNeighbourhood: counts.byNeighbourhood, latestNeighbourhoods: counts.latestNeighbourhoods }}
+            campaign={{ slug: campaign.slug, title: campaign.title, kind: campaign.kind, question: campaign.question }}
             share={share}
           >
             {campaign.body && <div className="prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(campaign.body) }} />}
