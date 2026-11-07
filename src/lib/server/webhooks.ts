@@ -16,7 +16,7 @@ import {
 } from "@/lib/contributions";
 import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
 import { sendEmail } from "./email";
-import { lockPerson, type Querier } from "./limits";
+import { limitForYear, lockPerson, type Querier } from "./limits";
 import { notifyDonationSucceeded, notifyMembershipActive, notifyOrderPaid, notifyRecurringStarted } from "./notifications";
 import { latestActiveMembershipExpiry } from "./payments";
 import { findOrCreatePerson } from "./people";
@@ -415,10 +415,13 @@ async function invoicePaid(tx: Tx, p: Extract<Prepared, { kind: "invoice_paid" }
  * the transaction commits. Returns the amount marked per row.
  */
 async function enforceLimit(tx: Tx, rows: Contribution[], paidAt: Date): Promise<Map<string, number>> {
-  const limit = env.contributionLimitCents;
   const pending = new Map<string, number>();
+  // The limit of each payment's own contribution year (Pacific).
+  const limits = new Map<number, number>();
   for (const row of rows) {
     const { year } = pacificYearMonth(row.paidAt ?? paidAt);
+    if (!limits.has(year)) limits.set(year, await limitForYear(year, tx));
+    const limit = limits.get(year)!;
     const [start, end] = pacificYearBounds(year);
     const [{ accepted }] = await tx
       .select({

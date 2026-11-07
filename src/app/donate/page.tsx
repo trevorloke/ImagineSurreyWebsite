@@ -4,24 +4,23 @@ import { DonateForm } from "@/components/forms/DonateForm";
 import type { Choice } from "@/components/forms/AmountPicker";
 import { PageHead } from "@/components/PageHead";
 import { Alert } from "@/components/forms/Field";
-import { DEFAULT_CENTS, pacificYearMonth, starClubCents } from "@/lib/contributions";
-import { env } from "@/lib/env";
+import { DEFAULT_CENTS, starClubCents } from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
+import { currentLimit } from "@/lib/server/limits";
 import { getSettings } from "@/lib/server/settings";
 
 export const metadata: Metadata = { title: "Chip in", description: "Contribute to Imagine Surrey, one-time or monthly." };
 
 export default async function DonatePage({ searchParams }: PageProps<"/donate">) {
   await connection();
-  const [sp, settings] = await Promise.all([searchParams, getSettings()]);
+  // This Pacific year's limit, so the page changes over at midnight on January 1.
+  const [sp, settings, { year, cents: limitCents }] = await Promise.all([searchParams, getSettings(), currentLimit()]);
   const { donate, org } = settings;
   // One-time is the default. Monthly is only selected here when the person
   // chose it themselves on the home page widget, which links with ?frequency=.
   const frequency = sp.frequency === "monthly" ? "monthly" : "one_time";
   const tier = sp.tier === "star" || sp.tier === "superstar" ? sp.tier : "standard";
   const amount = Number(sp.amount);
-  const limitCents = env.contributionLimitCents;
-  const { year } = pacificYearMonth(new Date());
   const initial: Choice = {
     frequency,
     tier,
@@ -49,7 +48,7 @@ export default async function DonatePage({ searchParams }: PageProps<"/donate">)
             </h2>
             <p className="body">
               Contributions must come from an individual who lives in BC and is a Canadian citizen or permanent resident, using their own money. The limit
-              under BC’s Local Elections Campaign Financing Act is {formatCents(limitCents)} per person in {year}. Membership fees count toward it.
+              under BC’s Local Elections Campaign Financing Act is {formatCents(limitCents)} per person in {year}. Memberships count toward it.
               Contributions aren’t tax deductible.
             </p>
             <p className="body">If a payment ever takes you over the annual limit, we return the extra automatically.</p>

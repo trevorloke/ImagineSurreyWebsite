@@ -14,7 +14,7 @@ import { membershipFeeReturnedEmail } from "@/lib/email/membership-fee";
 
 vi.mock("server-only", () => ({}));
 const { overLimitMessage } = await import("@/lib/server/limits");
-const { publicFormContext } = await import("@/lib/server/payments");
+const { membershipMinimums, publicFormContext } = await import("@/lib/server/payments");
 const { NextRequest } = await import("next/server");
 
 const LIMIT = 142970;
@@ -250,5 +250,36 @@ describe("membershipFeeReturnedEmail", () => {
 
   it("greets someone without a first name on file", () => {
     expect(membershipFeeReturnedEmail(ctx, { firstName: " " }).text).toMatch(/^Hi, thanks for joining/m);
+  });
+});
+
+describe("membershipMinimums (from the environment)", () => {
+  const set = (fee: string | undefined, youth: string | undefined) => {
+    vi.stubEnv("MEMBERSHIP_FEE_CENTS", fee as string);
+    vi.stubEnv("MEMBERSHIP_YOUTH_MIN_CENTS", youth as string);
+  };
+
+  it("defaults to $10, and $5 for youth members", () => {
+    set(undefined, undefined);
+    expect(membershipMinimums()).toEqual({ standardCents: 1000, youthCents: 500 });
+    vi.unstubAllEnvs();
+  });
+
+  it("makes MEMBERSHIP_FEE_CENTS the minimum and halves it for youth", () => {
+    set("2000", "");
+    expect(membershipMinimums()).toEqual({ standardCents: 2000, youthCents: 1000 });
+    vi.unstubAllEnvs();
+  });
+
+  it("takes MEMBERSHIP_YOUTH_MIN_CENTS when it is set", () => {
+    set("1000", "300");
+    expect(membershipMinimums()).toEqual({ standardCents: 1000, youthCents: 300 });
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps free membership free", () => {
+    set("0", "500");
+    expect(membershipMinimums()).toEqual({ standardCents: 0, youthCents: 0 });
+    vi.unstubAllEnvs();
   });
 });

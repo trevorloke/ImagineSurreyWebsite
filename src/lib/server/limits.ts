@@ -3,12 +3,15 @@ import { and, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
-import { contributions, recurringDonations } from "@/lib/db/schema";
+import { contributionLimits, contributions, recurringDonations } from "@/lib/db/schema";
+import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   checkAnnualLimit,
+  limitFromRows,
   pacificMonthBounds,
   pacificYearBounds,
+  pacificYear,
   pacificYearMonth,
   remainingMonthlyPayments,
   SLATES,
@@ -17,6 +20,7 @@ import {
   type SlateAmounts,
 } from "@/lib/contributions";
 import { formatCents } from "@/lib/money";
+import { cached, TAGS } from "./cache";
 
 /** A database handle or a transaction: everything here works inside either. */
 export type Querier = PgDatabase<PostgresJsQueryResultHKT, typeof schema>;
@@ -38,6 +42,37 @@ export const SLATE_LABEL: Record<Slate, string> = { council: "city council slate
  */
 export function overLimitMessage(slate: Slate, limitCents: number): string {
   return `That would take you over this year's ${formatCents(limitCents)} contribution limit for our ${SLATE_LABEL[slate]}. Try a smaller amount, or email hello@imaginesurrey.ca if you think this is a mistake.`;
+}
+
+// ── The limit for a year ───────────────────────────────────────────────────
+
+/**
+ * The annual contribution limit for a Pacific calendar year: the row stored
+ * for that year in Admin → Contribution limits, else CONTRIBUTION_LIMIT_CENTS.
+ * Every limit check asks for the year of the contribution it is checking, so
+ * a new year's figure takes effect at midnight on January 1, Pacific time.
+ * Reads the database directly (no cache): checks must see an edit at once.
+ */
+export async function limitForYear(year: number, q: Querier = getDb()): Promise<number> {
+  const rows = await q.select({ year: contributionLimits.year, cents: contributionLimits.cents }).from(contributionLimits).where(eq(contributionLimits.year, year));
+  return limitFromRows(rows, year, env.contributionLimitCents);
+}
+
+const cachedLimitForYear = cached("contribution-limit", [TAGS.settings], async (year: number) => limitForYear(year));
+
+/**
+ * The limit the public site shows: this Pacific year's, through the page
+ * cache (an admin edit clears it). The year is worked out here, outside the
+ * cache, so the figure switches at midnight on January 1 Pacific.
+ */
+export async function currentLimit(now = new Date()): Promise<{ year: number; cents: number }> {
+  const year = pacificYear(now);
+  try {
+    return { year, cents: await cachedLimitForYear(year) };
+  } catch (err) {
+    console.error("Could not read the contribution limit; showing the configured figure", err);
+    return { year, cents: env.contributionLimitCents };
+  }
 }
 
 /**
@@ -134,7 +169,7 @@ export interface SlateRoom {
  */
 export async function contributionRoom(db: Querier, personId: string, now = new Date()): Promise<Record<Slate, SlateRoom>> {
   const totals = await contributionTotals(db, personId, now);
-  const limit = env.contributionLimitCents;
+  const limit = await limitForYear(totals.year, db);
   const room = {} as Record<Slate, SlateRoom>;
   for (const slate of SLATES) {
     const givenCents = totals.yearToDate[slate] ?? 0;
@@ -150,8 +185,8 @@ export async function contributionRoom(db: Querier, personId: string, now = new 
  * rows, so the check and the insert can't interleave with another checkout.
  */
 export async function assertWithinLimit(q: Querier, personId: string, frequency: Frequency, slateAmounts: SlateAmounts, now = new Date()): Promise<void> {
-  const { yearToDate, committed, monthlyActive, monthIndex } = await contributionTotals(q, personId, now);
-  const limitCents = env.contributionLimitCents;
+  const { yearToDate, committed, monthlyActive, monthIndex, year } = await contributionTotals(q, personId, now);
+  const limitCents = await limitForYear(year, q);
   const result = checkAnnualLimit({ frequency, slateAmounts, yearToDate, committed, monthlyActive, limitCents, monthIndex });
   if (!result.ok) throw new UserFacingError(overLimitMessage(result.slate ?? "council", limitCents));
 }
