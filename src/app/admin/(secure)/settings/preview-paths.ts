@@ -2,6 +2,8 @@ import type { SectionKey } from "@/lib/settings";
 
 /** Where each settings section shows on the public site, for the Preview links. */
 export const PREVIEW_PATHS: Record<SectionKey, string> = {
+  header: "/",
+  homeModules: "/",
   org: "/",
   announcement: "/",
   hero: "/#top",

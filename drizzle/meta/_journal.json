@@ -50,6 +50,13 @@
       "when": 1793925778448,
       "tag": "0006_starbase_desk",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794036272339,
+      "tag": "0007_memo_build",
+      "breakpoints": true
     }
   ]
 }

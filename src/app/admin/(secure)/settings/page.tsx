@@ -20,10 +20,12 @@ export default async function SettingsIndex() {
         {SECTION_KEYS.map((key) => {
           const section = sections[key];
           const override = overrides.get(key);
+          // The module list has its own drag-free editor.
+          const editHref = key === "homeModules" ? "/admin/home" : `/admin/settings/${key}`;
           return (
             <div key={key} className="cms-card">
               <h2>
-                <Link href={`/admin/settings/${key}`}>{section.label}</Link>
+                <Link href={editHref}>{section.label}</Link>
               </h2>
               <p>{section.description}</p>
               <p className="cms-card-meta">
@@ -37,7 +39,7 @@ export default async function SettingsIndex() {
                 )}
               </p>
               <div className="btn-row" style={{ gap: 8, marginTop: 4 }}>
-                <Link href={`/admin/settings/${key}`} className="btn btn--navy btn--sm">
+                <Link href={editHref} className="btn btn--navy btn--sm">
                   Edit<span className="visually-hidden"> {section.label}</span>
                 </Link>
                 <Link href={PREVIEW_PATHS[key]} className="btn btn--outline btn--sm" target="_blank" rel="noreferrer">

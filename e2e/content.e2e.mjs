@@ -209,7 +209,7 @@ ok((await sql`select count(*)::int c from news_posts where title = 'Bad schedule
 // ── Site settings ─────────────────────────────────────────────────────────
 
 await page.goto(BASE + "/admin/settings");
-ok((await page.locator(".cms-card").count()) === 14 && (await page.locator(".cms-badge--draft", { hasText: "Default" }).count()) === 14, "settings index lists 14 sections, all at defaults");
+ok((await page.locator(".cms-card").count()) === 16 && (await page.locator(".cms-badge--draft", { hasText: "Default" }).count()) === 16, "settings index lists 16 sections, all at defaults");
 await page.goto(BASE + "/admin/settings/announcement");
 await page.check("#sf-enabled");
 await page.fill("#sf-text", "Town hall this Saturday in Newton");
@@ -484,6 +484,31 @@ for (const p of ["/admin/content/news/new", "/admin/settings/hero", "/admin/cont
   await mobile.goto(BASE + p);
   ok((await mobile.evaluate(() => document.documentElement.scrollWidth)) <= 360, `${p} has no sideways scroll at 360px`);
 }
+
+// ── Home page modules ────────────────────────────────────────────────────
+await page.goto(BASE + "/admin/home");
+ok((await page.locator(".home-module").count()) === 14, "the home page editor lists the 14 built-in modules");
+await page.getByLabel("Show Shop on the home page").uncheck();
+await page.getByRole("button", { name: "Move Chip in up" }).click();
+await page.getByRole("button", { name: "+ Add a text block" }).click();
+await page.locator(".home-module").last().getByLabel("Heading", { exact: true }).fill("Spring town halls");
+await page.locator(".home-module").last().getByLabel("Text", { exact: true }).fill("Come and ask us **anything**.");
+await page.locator(".home-module").last().getByLabel("Button text (optional)").fill("See events");
+await page.locator(".home-module").last().getByLabel("Button link").fill("/events");
+await page.getByRole("button", { name: "Save the home page" }).click();
+await page.locator('[role="status"]', { hasText: "Saved" }).waitFor();
+const savedModules = (await sql`select value from site_settings where key = 'homeModules'`)[0]?.value?.modules ?? [];
+ok(savedModules.length === 15 && savedModules.find((m) => m.kind === "shop")?.enabled === false && savedModules.at(-1)?.heading === "Spring town halls", "the module list is saved: shop hidden, a text block added at the end");
+await page.goto(BASE + "/");
+ok((await page.locator("#shop").count()) === 0, "a hidden module is gone from the home page");
+const order = await page.evaluate(() => [document.querySelector("#donate"), document.querySelector("#stop")].map((el) => el?.getBoundingClientRect().top ?? -1));
+ok(order[0] > 0 && order[1] > 0 && order[0] < order[1], "a module moved up shows earlier on the home page");
+const block = page.locator(".custom-module", { hasText: "Spring town halls" });
+ok((await block.count()) === 1 && (await block.locator("strong", { hasText: "anything" }).count()) === 1 && (await block.locator('a[href="/events"]', { hasText: "See events" }).count()) === 1, "the text block shows with its Markdown and button");
+await page.goto(BASE + "/admin/home");
+ok((await page.locator(".home-module").count()) === 15 && (await page.getByLabel("Show Shop on the home page").isChecked()) === false, "the editor reopens with what was saved");
+// Leave the home page as the other suites expect it.
+await sql`delete from site_settings where key = 'homeModules'`;
 
 await browser.close();
 await finish();
