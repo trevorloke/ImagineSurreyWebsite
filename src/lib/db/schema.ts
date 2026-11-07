@@ -84,6 +84,8 @@ export const memberships = pgTable(
       .references(() => people.id),
     status: membershipStatus("status").notNull().default("pending_payment"),
     feeCents: integer("fee_cents").notNull(),
+    // Membership is by donation; youth members (14 to 30 on the day they join) have a lower minimum.
+    youth: boolean("youth").notNull().default(false),
     // Outside-Surrey members can join but don't vote at member meetings.
     votingEligible: boolean("voting_eligible").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }),
@@ -564,6 +566,11 @@ export const adminUsers = pgTable(
     active: boolean("active").notNull().default(true),
     invitedById: uuid("invited_by_id").references((): AnyPgColumn => adminUsers.id, { onDelete: "set null" }),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    // Two-factor sign-in (authenticator app). The secret is encrypted with a
+    // key derived from ADMIN_SESSION_SECRET; recovery codes are stored hashed.
+    totpSecret: text("totp_secret"),
+    totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
+    recoveryCodes: text("recovery_codes").array().notNull().default([]),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("admin_users_email_idx").on(t.email)],
@@ -805,7 +812,8 @@ export const starbaseOutbox = pgTable(
     // petition | pledge | newsletter | volunteer-shift | membership | deletion-request
     kind: text("kind").notNull(),
     personId: uuid("person_id").references(() => people.id, { onDelete: "set null" }),
-    // The exact body sent to POST /in/v1/people.
+    // Which Starbase endpoint the row goes to, and the exact body sent there.
+    endpoint: text("endpoint").notNull().default("/in/v1/people"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     status: starbaseOutboxStatus("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
@@ -822,3 +830,43 @@ export const starbaseOutbox = pgTable(
     index("starbase_outbox_created_idx").on(t.createdAt),
   ],
 ).enableRLS();
+
+// ── Contribution limits by year ─────────────────────────────────────────────
+// Elections BC indexes the annual limit every January. A row per year means
+// the new figure can be entered as soon as it is published and takes effect
+// on January 1 (Pacific) by itself. CONTRIBUTION_LIMIT_CENTS is the fallback
+// for a year with no row.
+export const contributionLimits = pgTable("contribution_limits", {
+  year: integer("year").primaryKey(),
+  cents: integer("cents").notNull(),
+  note: text("note"),
+  updatedById: uuid("updated_by_id").references(() => adminUsers.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("contribution_limits_positive", sql`${t.cents} > 0`)]).enableRLS();
+
+// ── Website visits (first-party, cookieless) ────────────────────────────────
+// One row per page view: the path, the referring site, the ?source / ?ref
+// the site already tracks, and a visitor hash that changes every day. No IP
+// address, user agent or cookie is stored, so it needs no consent banner.
+export const pageViews = pgTable(
+  "page_views",
+  {
+    id: id(),
+    day: date("day").notNull(),
+    path: text("path").notNull(),
+    referrerHost: text("referrer_host"),
+    source: text("source"),
+    ref: text("ref"),
+    visitorHash: text("visitor_hash").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("page_views_day_idx").on(t.day), index("page_views_visitor_idx").on(t.day, t.visitorHash)],
+).enableRLS();
+
+// The random salt for each day's visitor hash; old salts are deleted, so a
+// past day's hashes can never be recomputed from an IP address.
+export const visitSalts = pgTable("visit_salts", {
+  day: date("day").primaryKey(),
+  salt: text("salt").notNull(),
+}).enableRLS();
+

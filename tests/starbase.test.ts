@@ -283,6 +283,7 @@ function row(over: Partial<OutboxRow> = {}): OutboxRow {
   return {
     id: over.id ?? crypto.randomUUID(),
     kind: "petition",
+    endpoint: "/in/v1/people",
     personId: "11111111-1111-4111-8111-111111111111",
     payload: { email: "a@b.ca", source: "petition-x" },
     status: "pending",
