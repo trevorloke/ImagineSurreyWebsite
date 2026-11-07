@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import { ActionError } from "./actions";
 import { hashPassword, PASSWORD_MIN_LENGTH, revokeAllSessions, verifyPassword, type AdminUser, type Role } from "./admin-auth";
 import { sendEmail } from "./email";
+import { resetTwoFactor } from "./mfa";
 import { getSettings } from "./settings";
 import { createToken, tokenUrl } from "./tokens";
 
@@ -23,6 +24,8 @@ export type StaffRow = {
   role: Role;
   active: boolean;
   passwordSet: boolean;
+  /** Two-factor sign-in is on. */
+  twoFactor: boolean;
   invitedBy: string | null;
   lastLoginAt: Date | null;
   createdAt: Date;
@@ -31,7 +34,7 @@ export type StaffRow = {
 
 export async function listStaff(db: Db): Promise<StaffRow[]> {
   const rows = (await db.execute(sql`
-    select u.id, u.email, u.name, u.role, u.active, u.password_hash is not null as password_set, i.name as invited_by,
+    select u.id, u.email, u.name, u.role, u.active, u.password_hash is not null as password_set, u.totp_enabled_at is not null as two_factor, i.name as invited_by,
            to_char(u.last_login_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login_at,
            to_char(u.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
            (select count(*) from admin_sessions s where s.user_id = u.id and s.revoked_at is null and s.expires_at > now())::int as active_sessions
@@ -44,6 +47,7 @@ export async function listStaff(db: Db): Promise<StaffRow[]> {
     role: r.role as Role,
     active: Boolean(r.active),
     passwordSet: Boolean(r.password_set),
+    twoFactor: Boolean(r.two_factor),
     invitedBy: (r.invited_by as string | null) ?? null,
     // Raw query results carry timestamps as text.
     lastLoginAt: r.last_login_at ? new Date(String(r.last_login_at)) : null,
@@ -130,6 +134,19 @@ export async function resetPassword(db: Db, actor: AdminUser, id: string): Promi
   await db.update(adminUsers).set({ passwordHash: await hashPassword(password) }).where(eq(adminUsers.id, id));
   await revokeAllSessions(db, id);
   return password;
+}
+
+/**
+ * Owners only: clear someone else's two-factor sign-in (a lost phone and no
+ * recovery codes) and sign them out everywhere. Owners and administrators
+ * set it up again at their next sign-in.
+ */
+export async function resetStaffTwoFactor(db: Db, actor: AdminUser, id: string): Promise<void> {
+  if (actor.role !== "owner") throw new ActionError("Only an owner can reset two-factor sign-in.");
+  if (id === actor.id) throw new ActionError("Turn your own two-factor sign-in off under My account.");
+  await findStaff(db, id);
+  await resetTwoFactor(db, id);
+  await revokeAllSessions(db, id);
 }
 
 // ── Own account ───────────────────────────────────────────────────────────

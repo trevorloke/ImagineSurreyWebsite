@@ -25,7 +25,7 @@ Every action ends with one next step and a share link that carries the supporter
 
 ## What organizers use (`/admin`)
 
-Staff sign in with email and password, or a one-time emailed link. Owners invite staff at Admin → Staff. Each role (owner, admin, organizer, editor) sees only what it needs, and money data needs the `money` permission. Every change is in the audit log.
+Staff sign in with email and password, or a one-time emailed link, followed by a code from an authenticator app (two-factor sign-in, required for owners and administrators and optional for everyone else; recovery codes cover a lost phone). Owners invite staff at Admin → Staff. Each role (owner, admin, organizer, editor) sees only what it needs, and money data needs the `money` permission. Every change is in the audit log.
 
 | Area | What it does |
 | --- | --- |

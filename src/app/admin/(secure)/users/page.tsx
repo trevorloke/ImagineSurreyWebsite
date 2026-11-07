@@ -2,8 +2,9 @@ import Link from "next/link";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { PERMISSIONS, requireAdmin, ROLE_LABELS, ROLE_PERMISSIONS } from "@/lib/server/admin-auth";
+import { MFA_REQUIRED_ROLES } from "@/lib/mfa-policy";
 import { listStaff, ROLES } from "@/lib/server/staff";
-import { changeRoleAction, deactivateAction, inviteAction, reactivateAction, resendLinkAction, resetPasswordAction } from "./actions";
+import { changeRoleAction, deactivateAction, inviteAction, reactivateAction, resendLinkAction, resetPasswordAction, resetTwoFactorAction } from "./actions";
 import { InviteForm, StaffControls } from "./StaffForms";
 import "../people/people.css";
 
@@ -19,7 +20,7 @@ export default async function StaffPage() {
   const user = await requireAdmin("users");
   const staff = await listStaff(getDb());
   const emailEnabled = env.emailEnabled;
-  const actions = { changeRole: changeRoleAction, deactivate: deactivateAction, reactivate: reactivateAction, resetPassword: resetPasswordAction, resendLink: resendLinkAction };
+  const actions = { changeRole: changeRoleAction, deactivate: deactivateAction, reactivate: reactivateAction, resetPassword: resetPasswordAction, resendLink: resendLinkAction, resetTwoFactor: resetTwoFactorAction };
 
   return (
     <>
@@ -39,7 +40,7 @@ export default async function StaffPage() {
             {staff.length} account{staff.length === 1 ? "" : "s"}
           </h2>
           <p className="small" style={{ marginBottom: 14 }}>
-            The last active owner can&apos;t be demoted or deactivated, and nobody can deactivate themselves.
+            The last active owner can&apos;t be demoted or deactivated, and nobody can deactivate themselves. Owners and administrators must use two-factor sign-in; an owner can reset it for someone who has lost their phone and recovery codes.
           </p>
           <ul className="staff-list">
             {staff.map((s) => (
@@ -51,6 +52,7 @@ export default async function StaffPage() {
                   <p>
                     {s.email}
                     {!s.passwordSet && " · no password yet (signs in by email link)"}
+                    {s.twoFactor ? " · two-factor sign-in on" : MFA_REQUIRED_ROLES.includes(s.role) ? " · two-factor sign-in not set up yet (asked at next sign-in)" : " · no two-factor sign-in"}
                   </p>
                   <p>
                     {s.lastLoginAt ? `Last signed in ${WHEN.format(s.lastLoginAt)}` : "Never signed in"}
@@ -65,6 +67,7 @@ export default async function StaffPage() {
                   role={s.role}
                   active={s.active}
                   passwordSet={s.passwordSet}
+                  twoFactor={s.twoFactor}
                   isSelf={s.id === user.id}
                   actorIsOwner={user.role === "owner"}
                   emailEnabled={emailEnabled}

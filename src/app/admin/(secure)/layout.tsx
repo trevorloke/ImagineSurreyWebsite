@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { adminPreviewAllowed } from "@/lib/preview-mode";
-import { can, requireAdmin, ROLE_LABELS, type Permission } from "@/lib/server/admin-auth";
+import { can, getAdminAccount, ROLE_LABELS, type Permission } from "@/lib/server/admin-auth";
 
 export const metadata: Metadata = { title: "Admin", robots: { index: false } };
 
@@ -27,7 +28,12 @@ const NAV: { href: string; label: string; permission?: Permission }[] = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireAdmin();
+  const account = await getAdminAccount();
+  if (!account) redirect("/admin/login");
+  const { user, mustEnrol } = account;
+  // Enrol first: an owner or administrator without two-factor sign-in gets
+  // only My account (requireAdmin on every other page sends them there).
+  const nav = mustEnrol ? NAV.filter((item) => item.href === "/admin/account") : NAV.filter((item) => !item.permission || can(user, item.permission));
   return (
     <div className="admin">
       {adminPreviewAllowed() && (
@@ -37,7 +43,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       )}
       <nav className="admin-nav no-print" aria-label="Admin">
         <strong style={{ color: "var(--navy)", fontSize: 18 }}>Imagine Surrey admin</strong>
-        {NAV.filter((item) => !item.permission || can(user, item.permission)).map((item) => (
+        {nav.map((item) => (
           <Link key={item.href} href={item.href}>
             {item.label}
           </Link>
@@ -51,6 +57,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </button>
         </form>
       </nav>
+      {mustEnrol && (
+        <div role="alert" className="alert no-print" style={{ margin: "16px 16px 0" }}>
+          <span aria-hidden="true" className="alert-icon">
+            !
+          </span>
+          <span>
+            <strong>Set up two-factor sign-in to continue.</strong> The admin holds supporters&apos; personal and political information, so owners and administrators need a code from an authenticator app as well as a password. The rest of the admin opens once it&apos;s on.
+          </span>
+        </div>
+      )}
       {children}
     </div>
   );

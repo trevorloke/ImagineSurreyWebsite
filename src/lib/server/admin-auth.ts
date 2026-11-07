@@ -7,6 +7,8 @@ import { redirect } from "next/navigation";
 import { getDb, type Db } from "@/lib/db";
 import { adminSessions, adminUsers, loginAttempts } from "@/lib/db/schema";
 import { env } from "@/lib/env";
+import { mustEnrol } from "@/lib/mfa-policy";
+import { createToken } from "./tokens";
 
 export const SESSION_COOKIE = "is_admin_session";
 export const SESSION_HOURS = 12;
@@ -112,13 +114,25 @@ export const sessionCookieOptions = {
   path: "/",
 };
 
-/** The signed-in admin, or null. Safe to call anywhere on the server. */
-export async function getAdminUser(): Promise<AdminUser | null> {
+export type AdminAccount = {
+  user: AdminUser;
+  /** Two-factor sign-in is on for this account. */
+  twoFactor: boolean;
+  /** An owner or administrator who hasn't set up two-factor sign-in yet: only My account is open to them. */
+  mustEnrol: boolean;
+};
+
+/**
+ * The signed-in admin and their two-factor state, or null. Unlike
+ * getAdminUser this includes someone who still has to set up two-factor
+ * sign-in; use it only where that person is allowed (My account, the layout).
+ */
+export async function getAdminAccount(): Promise<AdminAccount | null> {
   const parsed = parseSessionCookie((await cookies()).get(SESSION_COOKIE)?.value);
   if (!parsed) return null;
   const db = getDb();
   const [row] = await db
-    .select({ id: adminUsers.id, email: adminUsers.email, name: adminUsers.name, role: adminUsers.role, lastSeenAt: adminSessions.lastSeenAt })
+    .select({ id: adminUsers.id, email: adminUsers.email, name: adminUsers.name, role: adminUsers.role, totpEnabledAt: adminUsers.totpEnabledAt, lastSeenAt: adminSessions.lastSeenAt })
     .from(adminSessions)
     .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.userId))
     .where(and(eq(adminSessions.id, parsed.id), isNull(adminSessions.revokedAt), gt(adminSessions.expiresAt, new Date()), eq(adminUsers.active, true)))
@@ -127,18 +141,38 @@ export async function getAdminUser(): Promise<AdminUser | null> {
   if (Date.now() - row.lastSeenAt.getTime() > 5 * 60_000) {
     await db.update(adminSessions).set({ lastSeenAt: new Date() }).where(eq(adminSessions.id, parsed.id));
   }
-  return { id: row.id, email: row.email, name: row.name, role: row.role };
+  const twoFactor = Boolean(row.totpEnabledAt);
+  return { user: { id: row.id, email: row.email, name: row.name, role: row.role }, twoFactor, mustEnrol: mustEnrol(row.role, twoFactor) };
 }
+
+/**
+ * The signed-in admin, or null. Safe to call anywhere on the server. An
+ * owner or administrator who still has to set up two-factor sign-in counts
+ * as not signed in here, so admin API routes refuse them too.
+ */
+export async function getAdminUser(): Promise<AdminUser | null> {
+  const account = await getAdminAccount();
+  return account && !account.mustEnrol ? account.user : null;
+}
+
+/** Where an owner or administrator without two-factor sign-in is sent. */
+export const ENROL_PATH = "/admin/account?enrol=required";
 
 /**
  * For pages and server actions: the signed-in admin, or a redirect to the
  * sign-in page. With a permission, also a redirect when the role lacks it.
  * Every admin page must call this itself; a check in the layout alone can
  * be skipped by a direct request for the page segment.
+ *
+ * Owners and administrators who haven't set up two-factor sign-in are sent
+ * to My account to do it; only the pages and actions that pass
+ * `{ enrolling: true }` (My account and its two-factor actions) let them in.
  */
-export async function requireAdmin(permission?: Permission): Promise<AdminUser> {
-  const user = await getAdminUser();
-  if (!user) redirect("/admin/login");
+export async function requireAdmin(permission?: Permission, options: { enrolling?: boolean } = {}): Promise<AdminUser> {
+  const account = await getAdminAccount();
+  if (!account) redirect("/admin/login");
+  if (account.mustEnrol && !options.enrolling) redirect(ENROL_PATH);
+  const { user } = account;
   if (permission && !can(user, permission)) redirect(`/admin?denied=${permission}`);
   return user;
 }
@@ -180,9 +214,34 @@ export async function ensureBootstrapOwner(db: Db): Promise<void> {
     .onConflictDoNothing();
 }
 
-export type LoginResult = { ok: true; cookie: { value: string; maxAge: number }; user: AdminUser } | { ok: false; reason: "locked" | "invalid" };
+export type LoginResult =
+  | { ok: true; cookie: { value: string; maxAge: number }; user: AdminUser }
+  /** Two-factor sign-in is on: a code is still needed. `pending` goes in PENDING_COOKIE. */
+  | { ok: "second-step"; pending: { value: string; maxAge: number }; user: AdminUser }
+  | { ok: false; reason: "locked" | "invalid" };
 
-export async function loginWithPassword(email: string, password: string, meta: RequestMeta): Promise<LoginResult> {
+export type FirstFactor = "password" | "email-link";
+
+/** The short-lived cookie that carries the pending second step (an `admin-mfa` token). */
+export const PENDING_COOKIE = "is_admin_mfa";
+/** Minutes the second step stays open after a correct password or link. */
+export const PENDING_MINUTES = 10;
+
+type UserRow = typeof adminUsers.$inferSelect;
+
+/** After a correct password or link: a session, or the second step when two-factor sign-in is on. */
+async function afterFirstFactor(db: Db, user: UserRow, meta: RequestMeta, method: FirstFactor, next: string): Promise<LoginResult> {
+  const summary = { id: user.id, email: user.email, name: user.name, role: user.role };
+  if (user.totpEnabledAt) {
+    const until = Date.now() + PENDING_MINUTES * 60_000;
+    const value = await createToken(db, "admin-mfa", user.email, { ttlMinutes: PENDING_MINUTES, data: { userId: user.id, method, next, until } });
+    return { ok: "second-step", pending: { value, maxAge: PENDING_MINUTES * 60 }, user: summary };
+  }
+  const cookie = await createSession(db, user.id, meta);
+  return { ok: true, cookie, user: summary };
+}
+
+export async function loginWithPassword(email: string, password: string, meta: RequestMeta, next = "/admin"): Promise<LoginResult> {
   const db = getDb();
   await ensureBootstrapOwner(db);
   const normalized = email.trim().toLowerCase();
@@ -194,20 +253,18 @@ export async function loginWithPassword(email: string, password: string, meta: R
   for (const key of keys) await recordAttempt(db, key, valid);
   if (!user || !valid) return { ok: false, reason: "invalid" };
 
-  const cookie = await createSession(db, user.id, meta);
-  return { ok: true, cookie, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+  return afterFirstFactor(db, user, meta, "password", next);
 }
 
 // Verified against when the email is unknown, so timing does not reveal which emails exist.
 const DUMMY_HASH = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 /** Sign in from a one-time email link. */
-export async function loginByEmail(email: string, meta: RequestMeta): Promise<LoginResult> {
+export async function loginByEmail(email: string, meta: RequestMeta, next = "/admin"): Promise<LoginResult> {
   const db = getDb();
   const user = await db.query.adminUsers.findFirst({ where: and(eq(adminUsers.email, email.toLowerCase()), eq(adminUsers.active, true)) });
   if (!user) return { ok: false, reason: "invalid" };
-  const cookie = await createSession(db, user.id, meta);
-  return { ok: true, cookie, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+  return afterFirstFactor(db, user, meta, "email-link", next);
 }
 
 export function requestMeta(req: Request): RequestMeta {

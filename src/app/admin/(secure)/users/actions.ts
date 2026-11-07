@@ -7,7 +7,7 @@ import { env } from "@/lib/env";
 import { ActionError, adminAction } from "@/lib/server/actions";
 import { ROLE_LABELS, type Role } from "@/lib/server/admin-auth";
 import { audit } from "@/lib/server/audit";
-import { changeRole, inviteStaff, resetPassword, ROLES, sendSignInLink, setActive } from "@/lib/server/staff";
+import { changeRole, inviteStaff, resetPassword, resetStaffTwoFactor, ROLES, sendSignInLink, setActive } from "@/lib/server/staff";
 
 // Handlers write their own audit entry so it names the account (entity
 // "admin_user" + id); adminAction's auditAction argument is left out so there
@@ -78,4 +78,11 @@ export const resetPasswordAction = adminAction("users", z.object({ id }), async 
   await audit(user, "staff.reset-password", {}, "admin_user", data.id);
   refresh();
   return `New password: ${password} — pass it on securely; it is shown only this once. Their other sessions are signed out.`;
+});
+
+export const resetTwoFactorAction = adminAction("users", z.object({ id }), async (data, { user }) => {
+  await resetStaffTwoFactor(getDb(), user, data.id);
+  await audit(user, "staff.reset-2fa", {}, "admin_user", data.id);
+  refresh();
+  return "Two-factor sign-in was reset and they were signed out everywhere. Owners and administrators set it up again when they next sign in.";
 });

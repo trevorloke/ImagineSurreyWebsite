@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db";
 import { adminUsers } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { adminMagicLinkEmail } from "@/lib/email/messages";
-import { ensureBootstrapOwner, isLocked, loginByEmail, recordAttempt, requestMeta, SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/admin-auth";
+import { ensureBootstrapOwner, isLocked, loginByEmail, PENDING_COOKIE, recordAttempt, requestMeta, SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/admin-auth";
 import { audit } from "@/lib/server/audit";
 import { sendEmail } from "@/lib/server/email";
 import { getSettings } from "@/lib/server/settings";
@@ -53,9 +53,16 @@ export async function GET(req: NextRequest) {
   const db = getDb();
   const token = await consumeToken(db, "admin-login", raw);
   if (!token) return redirectTo("/admin/login?error=link", 303);
-  const result = await loginByEmail(token.email, requestMeta(req));
+  const next = safeNext(token.data?.next);
+  const result = await loginByEmail(token.email, requestMeta(req), next);
   if (!result.ok) return redirectTo("/admin/login?error=invalid", 303);
-  const res = redirectTo(safeNext(token.data?.next), 303);
+  if (result.ok === "second-step") {
+    // Two-factor sign-in is on: the link counts as the first step only.
+    const res = redirectTo("/admin/login/verify", 303);
+    res.cookies.set(PENDING_COOKIE, result.pending.value, { ...sessionCookieOptions, maxAge: result.pending.maxAge });
+    return res;
+  }
+  const res = redirectTo(next, 303);
   res.cookies.set(SESSION_COOKIE, result.cookie.value, { ...sessionCookieOptions, maxAge: result.cookie.maxAge });
   await audit(result.user, "signin", { method: "email-link" });
   return res;
