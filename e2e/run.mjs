@@ -41,6 +41,8 @@ const env = {
   TURNSTILE_SECRET_KEY: "",
   TURNSTILE_VERIFY_URL: "",
   NODE_ENV: "production",
+  // Current time-zone rules (BC is on permanent UTC-7 from November 2026); see tzdata/README.md.
+  ICU_TIMEZONE_FILES_DIR: path.join(root, "tzdata"),
   // Next.js also reads .env.local; the suites always test the real sign-in gate.
   ADMIN_PREVIEW_MODE: "",
 };

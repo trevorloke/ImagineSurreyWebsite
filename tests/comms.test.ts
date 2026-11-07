@@ -166,8 +166,8 @@ describe("transactional email builders", () => {
 
   it("gives shifts a Pacific-time window and a calendar file", () => {
     const w = shiftWindow({ date: "2026-11-07", slot: "morning" });
-    expect(w.start.toISOString()).toBe("2026-11-07T17:00:00.000Z"); // 9 a.m. PST
-    expect(w.end.toISOString()).toBe("2026-11-07T20:00:00.000Z");
+    expect(w.start.toISOString()).toBe("2026-11-07T16:00:00.000Z"); // 9 a.m. on BC's permanent UTC-7
+    expect(w.end.toISOString()).toBe("2026-11-07T19:00:00.000Z");
     const out = shiftConfirmationEmail(ctx, { firstName: "Priya", shift: { id: "s1", date: "2026-11-07", slot: "morning", title: "Door-knocking", location: "Newton", notes: null } });
     expect(out.attachments?.[0].filename).toBe("shift.ics");
     expect(out.html).toContain("Saturday, November 7");

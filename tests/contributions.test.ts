@@ -91,13 +91,14 @@ describe("Pacific calendar", () => {
   it("starts months at Pacific midnight on either side of a clock change", () => {
     expect(pacificMonthStart(2026, 0).toISOString()).toBe("2026-01-01T08:00:00.000Z"); // PST
     expect(pacificMonthStart(2026, 6).toISOString()).toBe("2026-07-01T07:00:00.000Z"); // PDT
-    expect(pacificMonthStart(2026, 10).toISOString()).toBe("2026-11-01T07:00:00.000Z"); // clocks go back later that day
+    expect(pacificMonthStart(2026, 10).toISOString()).toBe("2026-11-01T07:00:00.000Z"); // BC stays on UTC-7 from this day
     expect(pacificMonthStart(2026, 2).toISOString()).toBe("2026-03-01T08:00:00.000Z"); // clocks go forward later that month
   });
 
   it("bounds a contribution year and a month", () => {
-    expect(pacificYearBounds(2026).map((d) => d.toISOString())).toEqual(["2026-01-01T08:00:00.000Z", "2027-01-01T08:00:00.000Z"]);
-    expect(pacificMonthBounds(2026, 11).map((d) => d.toISOString())).toEqual(["2026-12-01T08:00:00.000Z", "2027-01-01T08:00:00.000Z"]);
+    // BC is on permanent UTC-7 from November 1, 2026 (tzdata 2026e), so 2027 starts at 07:00 UTC.
+    expect(pacificYearBounds(2026).map((d) => d.toISOString())).toEqual(["2026-01-01T08:00:00.000Z", "2027-01-01T07:00:00.000Z"]);
+    expect(pacificMonthBounds(2026, 11).map((d) => d.toISOString())).toEqual(["2026-12-01T07:00:00.000Z", "2027-01-01T07:00:00.000Z"]);
     expect(pacificMonthBounds(2026, 9).map((d) => d.toISOString())).toEqual(["2026-10-01T07:00:00.000Z", "2026-11-01T07:00:00.000Z"]);
   });
 
